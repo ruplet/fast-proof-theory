@@ -1,0 +1,22 @@
+{
+  "name": "mypa-vscode",
+  "displayName": "MyPA",
+  "publisher": "local",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.90.0" },
+  "main": "./out/extension.js",
+  "activationEvents": ["onCommand:mypa.showGoals"],
+  "contributes": {
+    "commands": [
+      { "command": "mypa.showGoals", "title": "MyPA: Show Goals" }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ."
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^20.0.0"
+  }
+}

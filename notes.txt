@@ -1,0 +1,10 @@
+go to client, open VSCode from that folder. hit F5.
+
+code should compile npm-like, then open a new window.
+
+in that window, run Ctrl+Shift+P -> "MyPA" - should open you a Goals window
+
+in terminal, to set the state of goals:
+printf '%s\n' '{"goals":[{"id":"g1","hypotheses":[{"name":"h","type":"A -> B"},{"name":"a","type":"A"}],"target":"B"}]}' \
+  | nc 127.0.0.1 17171
+
