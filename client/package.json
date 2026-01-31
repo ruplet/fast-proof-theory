@@ -3,20 +3,39 @@
   "displayName": "MyPA",
   "publisher": "local",
   "version": "0.0.1",
-  "engines": { "vscode": "^1.90.0" },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
   "main": "./out/extension.js",
-  "activationEvents": ["onCommand:mypa.showGoals"],
+  "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:mypa",
+    "onCommand:mypa.showGoals"
+  ],
   "contributes": {
     "commands": [
-      { "command": "mypa.showGoals", "title": "MyPA: Show Goals" }
+      {
+        "command": "mypa.showGoals",
+        "title": "MyPA: Show Goals"
+      }
+    ],
+    "languages": [
+      {
+        "id": "mypa",
+        "aliases": ["MyPA"],
+        "extensions": [".mypa"],
+        "configuration": "./language-configuration.json"
+      }
     ]
   },
   "scripts": {
-    "compile": "tsc -p ."
+    "compile": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.0.0"
   }
 }

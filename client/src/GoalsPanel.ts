@@ -42,12 +42,13 @@ export class GoalsPanel implements vscode.Disposable {
   /** Create (or reveal) a Goals panel. */
   static createOrShow(
     context: vscode.ExtensionContext,
-    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
+    preserveFocus = false
   ): GoalsPanel {
     const panel = vscode.window.createWebviewPanel(
       "mypaGoals",
       "Goals",
-      viewColumn,
+      { viewColumn, preserveFocus },
       {
         enableScripts: true,
         localResourceRoots: [context.extensionUri],
@@ -72,9 +73,9 @@ export class GoalsPanel implements vscode.Disposable {
     void this.panel.webview.postMessage(msg);
   }
 
-  reveal(viewColumn?: vscode.ViewColumn) {
+  reveal(viewColumn?: vscode.ViewColumn, preserveFocus = false) {
     if (this.disposed) return;
-    this.panel.reveal(viewColumn);
+    this.panel.reveal(viewColumn, preserveFocus);
   }
 
   dispose() {
@@ -189,4 +190,3 @@ function getNonce(): string {
   for (let i = 0; i < 32; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
   return out;
 }
-

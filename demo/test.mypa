@@ -1,0 +1,19 @@
+theorem distrib_left
+hyp h : a ⊗ (b ⊕ c)
+goal (a ⊗ b) ⊕ (a ⊗ c)
+destruct h
+cases h_right1 left
+left
+split
+init h_left1
+init h_right1_left1
+
+theorem distrib_right
+hyp h : (a ⊗ b) ⊕ (a ⊗ c)
+goal a ⊗ (b ⊕ c)
+cases h left
+destruct h_left1
+split
+init h_left1_left1
+left
+init h_left1_right1

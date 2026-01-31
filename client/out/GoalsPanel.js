@@ -50,8 +50,8 @@ class GoalsPanel {
         });
     }
     /** Create (or reveal) a Goals panel. */
-    static createOrShow(context, viewColumn = vscode.ViewColumn.Beside) {
-        const panel = vscode.window.createWebviewPanel("mypaGoals", "Goals", viewColumn, {
+    static createOrShow(context, viewColumn = vscode.ViewColumn.Beside, preserveFocus = false) {
+        const panel = vscode.window.createWebviewPanel("mypaGoals", "Goals", { viewColumn, preserveFocus }, {
             enableScripts: true,
             localResourceRoots: [context.extensionUri],
             retainContextWhenHidden: true,
@@ -72,10 +72,10 @@ class GoalsPanel {
         const msg = { type: "clear" };
         void this.panel.webview.postMessage(msg);
     }
-    reveal(viewColumn) {
+    reveal(viewColumn, preserveFocus = false) {
         if (this.disposed)
             return;
-        this.panel.reveal(viewColumn);
+        this.panel.reveal(viewColumn, preserveFocus);
     }
     dispose() {
         if (this.disposed)
