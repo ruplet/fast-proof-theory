@@ -5,8 +5,8 @@ let goalsPanel: GoalsPanel | undefined;
 
 type Formula =
   | { kind: "atom"; name: string; negated: boolean }
-  | { kind: "tensor" | "par" | "with" | "plus"; left: Formula; right: Formula }
-  | { kind: "bang" | "quest"; of: Formula }
+  | { kind: "tensor" | "with" | "plus" | "lolli"; left: Formula; right: Formula }
+  | { kind: "bang"; of: Formula }
   | { kind: "one" | "bot" | "top" | "zero" };
 
 type GoalNode = {
@@ -75,15 +75,17 @@ function isMyPaEditor(editor: vscode.TextEditor | undefined): editor is vscode.T
  *
  * Tactics (operate on the first open goal):
  *   init [h]          close if goal matches hypothesis (optionally named)
- *   split             goal A ⊗ B or A & B → two subgoals
+ *   split             goal A ⊗ B or A & B → two subgoals (for ⊗ you must list hyps for first subgoal)
  *   tensor            alias for split on ⊗
- *   with              alias for split on &
+ *   with              alias for split on & (splits into two goals without choosing hyps)
  *   left/right        choose branch for ⊕ goal
- *   par-left/right    choose branch for ⅋ goal
- *   bang / quest      goal !A / ?A → subgoal A
+ *   bang              goal !A → subgoal A; `bang <h>` keeps !h and adds derelicted h
+ *   derelict          remove ! from goal when all assumptions are bangs
+ *   intro             introduce `⊸` (lollipop): for goal A ⊸ B, assume A and continue with B
+ *   apply <h>         apply hypothesis h : A ⊸ B, consuming h and creating subgoal A
  *   trivial           solves 1 or ⊤
- *   destruct <h>      break ⊗ / & hypothesis into components
- *   cases <h>         case split on ⊕ hypothesis (two subgoals)
+ *   destruct <h>      break a hypothesis: for ⊗ or &: split; for ⊕ acts like `cases` (see below); for ⊸ you can partition hyps
+ *   cases <h> <hyps...> split on ⊕ hypothesis into two subgoals; you must list which hypotheses go to the first subgoal (the rest go to the second)
  *   assume <h> : A    introduce a new hypothesis in the current goal
  */
 function computeProofStateFromText(text: string): ProofState {
@@ -96,22 +98,18 @@ function computeProofStateFromText(text: string): ProofState {
       "⊗",
       "with",
       "&",
+      "intro",
+      "apply",
+      "derelict",
       "left",
       "inl",
       "plus_left",
       "right",
       "inr",
       "plus_right",
-      "par",
-      "⅋",
-      "par-left",
-      "parl",
-      "par-right",
-      "parr",
       "bang",
       "!",
-      "quest",
-      "?",
+      
       "trivial",
       "destruct",
       "cases",
@@ -272,7 +270,7 @@ export function activate(context: vscode.ExtensionContext) {
   const completions: Completion[] = [
     { label: "\\otimes", insertText: "⊗", detail: "tensor / times" },
     { label: "\\tensor", insertText: "⊗", detail: "tensor / times" },
-    { label: "\\par", insertText: "⅋", detail: "par" },
+    { label: "\\lolli", insertText: "⊸", detail: "lollipop / implication" },
     { label: "\\with", insertText: "&", detail: "with" },
     { label: "\\plus", insertText: "⊕", detail: "plus" },
     { label: "\\oplus", insertText: "⊕", detail: "plus" },
@@ -282,7 +280,7 @@ export function activate(context: vscode.ExtensionContext) {
     { label: "\\one", insertText: "1", detail: "one" },
     { label: "\\zero", insertText: "0", detail: "zero" },
     { label: "\\bang", insertText: "!", detail: "of course" },
-    { label: "\\quest", insertText: "?", detail: "why not" },
+    
   ];
 
   const completionProvider = vscode.languages.registerCompletionItemProvider(
@@ -328,13 +326,14 @@ export function activate(context: vscode.ExtensionContext) {
       "with",
       "left",
       "right",
-      "par",
       "trivial",
       "bang",
-      "quest",
+      "intro",
+      "apply",
+      "derelict",
     ].map((k) => k.toLowerCase())
   );
-  const operatorRe = /[⊗⅋⊕&!?:]/g;
+  const operatorRe = /[⊗⊕&!:]/g;
 
   const semanticProvider =
     vscode.languages.registerDocumentSemanticTokensProvider(
@@ -408,7 +407,7 @@ class FormulaParser {
   constructor(private readonly input: string) {}
 
   parse(): Formula {
-    const result = this.parseWith();
+    const result = this.parseLolli();
     this.skipWs();
     if (this.pos !== this.input.length) {
       throw new Error(
@@ -416,6 +415,15 @@ class FormulaParser {
       );
     }
     return result;
+  }
+
+  private parseLolli(): Formula {
+    const node = this.parseWith();
+    if (this.matchSymbol("⊸") || this.matchSymbol("->") || this.matchWord("lolli")) {
+      const right = this.parseLolli();
+      return { kind: "lolli", left: node, right };
+    }
+    return node;
   }
 
   private parseWith(): Formula {
@@ -432,24 +440,11 @@ class FormulaParser {
   }
 
   private parsePlus(): Formula {
-    let node = this.parsePar();
-    while (true) {
-      if (this.matchSymbol("⊕") || this.matchSymbol("+") || this.matchWord("plus")) {
-        const right = this.parsePar();
-        node = { kind: "plus", left: node, right };
-        continue;
-      }
-      break;
-    }
-    return node;
-  }
-
-  private parsePar(): Formula {
     let node = this.parseTensor();
     while (true) {
-      if (this.matchSymbol("⅋") || this.matchWord("par")) {
+      if (this.matchSymbol("⊕") || this.matchSymbol("+") || this.matchWord("plus")) {
         const right = this.parseTensor();
-        node = { kind: "par", left: node, right };
+        node = { kind: "plus", left: node, right };
         continue;
       }
       break;
@@ -481,25 +476,18 @@ class FormulaParser {
       const of = this.parseUnary();
       return { kind: "bang", of };
     }
-    if (this.matchSymbol("?")) {
-      const of = this.parseUnary();
-      return { kind: "quest", of };
-    }
     if (this.matchWord("bang")) {
       const of = this.parseUnary();
       return { kind: "bang", of };
     }
-    if (this.matchWord("quest")) {
-      const of = this.parseUnary();
-      return { kind: "quest", of };
-    }
+    
     return this.parsePrimary();
   }
 
   private parsePrimary(): Formula {
     this.skipWs();
     if (this.matchSymbol("(")) {
-      const inner = this.parseWith();
+      const inner = this.parseLolli();
       this.expectSymbol(")");
       return inner;
     }
@@ -574,12 +562,11 @@ function formulaEquals(a: Formula, b: Formula): boolean {
     case "atom":
       return b.kind === "atom" && a.name === b.name && a.negated === b.negated;
     case "bang":
-    case "quest":
       return b.kind === a.kind && formulaEquals(a.of, b.of);
     case "tensor":
-    case "par":
     case "with":
     case "plus":
+    case "lolli":
       return (
         b.kind === a.kind &&
         formulaEquals(a.left, b.left) &&
@@ -608,19 +595,15 @@ function renderFormula(f: Formula, parentPrec = 0): string {
       const inner = renderFormula(f.of, 3);
       return `!${inner}`;
     }
-    case "quest": {
-      const inner = renderFormula(f.of, 3);
-      return `?${inner}`;
-    }
     case "tensor": {
       const left = renderFormula(f.left, 2);
       const right = renderFormula(f.right, 2);
       return paren(2, `${left} ⊗ ${right}`);
     }
-    case "par": {
-      const left = renderFormula(f.left, 2);
-      const right = renderFormula(f.right, 2);
-      return paren(2, `${left} ⅋ ${right}`);
+    case "lolli": {
+      const left = renderFormula(f.left, 0);
+      const right = renderFormula(f.right, 0);
+      return paren(0, `${left} ⊸ ${right}`);
     }
     case "with": {
       const left = renderFormula(f.left, 1);
@@ -714,7 +697,7 @@ class ProofEngine {
       putBack([]);
     };
 
-    const destructHyp = (hName: string, choose?: "left" | "right") => {
+    const destructHyp = (hName: string, choose?: "left" | "right", extra?: string[]) => {
       const hypIdx = ctx.findIndex((h) => h.name === hName);
       if (hypIdx === -1) {
         this.addError(line, `Unknown hypothesis "${hName}".`);
@@ -722,41 +705,86 @@ class ProofEngine {
         return;
       }
       const hyp = ctx[hypIdx];
-      ctx.splice(hypIdx, 1);
+      // create contexts without mutating the original ctx
+      const withoutHyp = ctx.filter((h, i) => i !== hypIdx).map((h) => ({ ...h }));
 
-      const addFresh = (base: string, formula: Formula) => {
+      const makeFreshName = (existing: InternalHypothesis[], base: string) => {
         let suffix = 1;
         let candidate = `${base}${suffix}`;
-        while (ctx.some((h) => h.name === candidate)) {
+        while (existing.some((h) => h.name === candidate)) {
           suffix += 1;
           candidate = `${base}${suffix}`;
         }
-        ctx.push({
-          name: candidate,
-          type: renderFormula(formula),
-          formula,
-        });
+        return candidate;
       };
 
-      if (hyp.formula.kind === "tensor" || hyp.formula.kind === "with") {
-        addFresh(`${hName}_left`, hyp.formula.left);
-        addFresh(`${hName}_right`, hyp.formula.right);
-        putBack([{ ...goal, ctx: cloneCtx(ctx) }]);
+      if (hyp.formula.kind === "tensor") {
+        const newCtx = withoutHyp.map((h) => ({ ...h }));
+        const leftName = makeFreshName(newCtx, `${hName}_left`);
+        newCtx.push({ name: leftName, type: renderFormula(hyp.formula.left), formula: hyp.formula.left });
+        const rightName = makeFreshName(newCtx, `${hName}_right`);
+        newCtx.push({ name: rightName, type: renderFormula(hyp.formula.right), formula: hyp.formula.right });
+        putBack([{ ...goal, ctx: cloneCtx(newCtx) }]);
+        return;
+      }
+
+      if (hyp.formula.kind === "with") {
+        // allow branch to be provided as the first extra argument when called like: destruct h left
+        let branchChoice = choose;
+        if (!branchChoice && extra && extra.length > 0) {
+          const tok = extra[0].toLowerCase();
+          if (tok === "left" || tok === "right") branchChoice = tok as "left" | "right";
+        }
+        if (!branchChoice) {
+          this.addError(line, `destruct on & requires choosing a branch ("left" or "right").`);
+          this.goals.unshift(goal);
+          return;
+        }
+        const branch = branchChoice === "left" ? hyp.formula.left : hyp.formula.right;
+        const newCtx = withoutHyp.map((h) => ({ ...h }));
+        const name = makeFreshName(newCtx, `${hName}_${branchChoice}`);
+        newCtx.push({ name, type: renderFormula(branch), formula: branch });
+        putBack([{ ...goal, ctx: cloneCtx(newCtx) }]);
         return;
       }
 
       if (hyp.formula.kind === "plus") {
-        if (!choose) {
-          this.addError(
-            line,
-            `cases on ⊕ requires a branch ("left" or "right").`
-          );
-          this.goals.unshift(goal);
-          return;
+        // cases: split into two subgoals; all existing hypotheses are duplicated to both branches
+        const firstCtx = withoutHyp.map((h) => ({ ...h }));
+        const secondCtx = withoutHyp.map((h) => ({ ...h }));
+        const leftName = makeFreshName(firstCtx, `${hName}_left`);
+        firstCtx.push({ name: leftName, type: renderFormula(hyp.formula.left), formula: hyp.formula.left });
+        const rightName = makeFreshName(secondCtx, `${hName}_right`);
+        secondCtx.push({ name: rightName, type: renderFormula(hyp.formula.right), formula: hyp.formula.right });
+        putBack([{ ...goal, ctx: cloneCtx(firstCtx) }, { ...goal, ctx: cloneCtx(secondCtx) }]);
+        return;
+      }
+
+      if (hyp.formula.kind === "lolli") {
+        // destruct implication: user may choose which hypotheses are used to prove the antecedent
+        const chosen = new Set<string>();
+        const list = extra ?? [];
+        for (const n of list) {
+          if (chosen.has(n)) {
+            this.addError(line, `Hypothesis "${n}" listed multiple times.`);
+            this.goals.unshift(goal);
+            return;
+          }
+          chosen.add(n);
         }
-        const branch = choose === "left" ? hyp.formula.left : hyp.formula.right;
-        addFresh(`${hName}_${choose}`, branch);
-        putBack([{ ...goal, ctx: cloneCtx(ctx) }]);
+        for (const n of chosen) {
+          if (!withoutHyp.some((h) => h.name === n)) {
+            this.addError(line, `Unknown hypothesis "${n}" in destruct.`);
+            this.goals.unshift(goal);
+            return;
+          }
+        }
+        const firstCtx = withoutHyp.filter((h) => chosen.has(h.name)).map((h) => ({ ...h }));
+        const secondCtx = withoutHyp.filter((h) => !chosen.has(h.name)).map((h) => ({ ...h }));
+        // add consequent (residual) to secondCtx (applying h to the proved antecedent)
+        const resName = makeFreshName(secondCtx, `${hName}_res`);
+        secondCtx.push({ name: resName, type: renderFormula(hyp.formula.right), formula: hyp.formula.right });
+        putBack([{ id: `g${++this.goalCounter}`, ctx: cloneCtx(firstCtx), target: hyp.formula.left }, { ...goal, ctx: cloneCtx(secondCtx) }]);
         return;
       }
 
@@ -777,10 +805,38 @@ class ProofEngine {
       case "tensor":
       case "⊗":
         if (target.kind === "tensor") {
+          // user must list hypothesis names that should be retained in the first subgoal
+          // if no hypotheses listed, the first subgoal gets an empty context
+          const chosen = new Set<string>();
+          for (const n of argWords) {
+            if (chosen.has(n)) {
+              this.addError(line, `Hypothesis "${n}" listed multiple times.`);
+              this.goals.unshift(goal);
+              return;
+            }
+            chosen.add(n);
+          }
+          // validate existence
+          for (const n of chosen) {
+            if (!ctx.some((h) => h.name === n)) {
+              this.addError(line, `Unknown hypothesis "${n}" in split.`);
+              this.goals.unshift(goal);
+              return;
+            }
+          }
+          const firstCtx = ctx.filter((h) => chosen.has(h.name));
+          const secondCtx = ctx.filter((h) => !chosen.has(h.name));
+          putBack([mkGoal(target.left, firstCtx), mkGoal(target.right, secondCtx)]);
+          return;
+        }
+
+        // allow `split` to also split a with (&) goal without requiring hypothesis selection
+        if (target.kind === "with") {
           putBack([mkGoal(target.left), mkGoal(target.right)]);
           return;
         }
-        this.addError(line, "Current goal is not a tensor (⊗).");
+
+        this.addError(line, "Current goal is not a tensor (⊗) or with (&).");
         this.goals.unshift(goal);
         return;
 
@@ -816,45 +872,49 @@ class ProofEngine {
         this.goals.unshift(goal);
         return;
 
-      case "par":
-      case "⅋":
-      case "par-left":
-      case "parl":
-        if (target.kind === "par") {
-          putBack([mkGoal(target.left)]);
-          return;
-        }
-        this.addError(line, "par-left applies only to ⅋ goals.");
-        this.goals.unshift(goal);
-        return;
-
-      case "par-right":
-      case "parr":
-        if (target.kind === "par") {
-          putBack([mkGoal(target.right)]);
-          return;
-        }
-        this.addError(line, "par-right applies only to ⅋ goals.");
-        this.goals.unshift(goal);
-        return;
 
       case "bang":
       case "!":
+        // If used with an argument, treat as dereliction on a hypothesis: keep !A and add A
+        if (argWords.length > 0) {
+          const hName = argWords[0];
+          const hypIdx = ctx.findIndex((h) => h.name === hName);
+          if (hypIdx === -1) {
+            this.addError(line, `Unknown hypothesis "${hName}".`);
+            this.goals.unshift(goal);
+            return;
+          }
+          const hyp = ctx[hypIdx];
+          if (hyp.formula.kind !== "bang") {
+            this.addError(line, `Hypothesis "${hName}" is not a bang.`);
+            this.goals.unshift(goal);
+            return;
+          }
+          // add a derelicted copy of the hypothesis (A) while keeping the original !A
+          let base = `${hName}_derelict`;
+          let suffix = 1;
+          let candidate = `${base}${suffix}`;
+          while (ctx.some((h) => h.name === candidate)) {
+            suffix += 1;
+            candidate = `${base}${suffix}`;
+          }
+          ctx.push({ name: candidate, type: renderFormula(hyp.formula.of), formula: hyp.formula.of });
+          putBack([{ ...goal, ctx: cloneCtx(ctx) }]);
+          return;
+        }
+
+        // otherwise, if goal is !A, reduce it to A
         if (target.kind === "bang") {
           putBack([mkGoal(target.of)]);
           return;
         }
-        this.addError(line, "bang applies only to ! goals.");
+        this.addError(line, "bang applies only to ! goals or as `bang <hyp>` for dereliction.");
         this.goals.unshift(goal);
         return;
 
       case "quest":
       case "?":
-        if (target.kind === "quest") {
-          putBack([mkGoal(target.of)]);
-          return;
-        }
-        this.addError(line, "quest applies only to ? goals.");
+        this.addError(line, "Unknown tactic \"?\".");
         this.goals.unshift(goal);
         return;
 
@@ -867,13 +927,32 @@ class ProofEngine {
         this.goals.unshift(goal);
         return;
 
+      case "derelict":
+        // remove a bang in the goal if all hypotheses are bangs
+        if (target.kind === "bang") {
+          if (!ctx.every((h) => h.formula.kind === "bang")) {
+            this.addError(line, "derelict requires all assumptions to be bangs.");
+            this.goals.unshift(goal);
+            return;
+          }
+          putBack([mkGoal(target.of)]);
+          return;
+        }
+        this.addError(line, "derelict applies only to ! goals.");
+        this.goals.unshift(goal);
+        return;
+
       case "destruct":
         if (argWords.length < 1) {
           this.addError(line, "destruct requires a hypothesis name.");
           this.goals.unshift(goal);
           return;
         }
-        destructHyp(argWords[0]);
+        {
+          const name = argWords[0];
+          const extra = argWords.slice(1);
+          destructHyp(name, undefined, extra);
+        }
         return;
 
       case "cases":
@@ -882,33 +961,130 @@ class ProofEngine {
           this.goals.unshift(goal);
           return;
         }
-        destructHyp(argWords[0], argWords[1] === "right" ? "right" : "left");
+        destructHyp(argWords[0]);
         return;
 
       case "assume": {
-        const assumeMatch = rawArgs.match(
-          /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$/
-        );
+        const assumeMatch = rawArgs.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$/);
         if (!assumeMatch) {
-          this.addError(
-            line,
-            'assume usage: tactic assume <name> : <formula>'
-          );
+          this.addError(line, 'assume usage: tactic assume <name> : <formula> <hypNames...>');
           this.goals.unshift(goal);
           return;
         }
         try {
-          const f = parseFormula(assumeMatch[2]);
-          ctx.push({
-            name: assumeMatch[1],
-            type: renderFormula(f),
-            formula: f,
-          });
-          putBack([{ ...goal, ctx: cloneCtx(ctx) }]);
+          const name = assumeMatch[1];
+          const rest = assumeMatch[2].trim();
+          const tokens = rest.length ? rest.split(/\s+/) : [];
+          let parsed: Formula | null = null;
+          let used = 0;
+          for (let i = tokens.length; i >= 1; i--) {
+            const cand = tokens.slice(0, i).join(" ");
+            try {
+              parsed = parseFormula(cand);
+              used = i;
+              break;
+            } catch (_) {
+              // try shorter prefix
+            }
+          }
+          if (!parsed) {
+            // maybe the whole rest is a formula without extra hyps
+            try {
+              parsed = parseFormula(rest);
+              used = tokens.length;
+            } catch (err) {
+              this.addError(line, (err as Error).message);
+              this.goals.unshift(goal);
+              return;
+            }
+          }
+          const chosen = tokens.slice(used);
+          // empty chosen list is allowed: first subgoal gets empty context
+          const chosenSet = new Set<string>();
+          for (const n of chosen) {
+            if (chosenSet.has(n)) {
+              this.addError(line, `Hypothesis "${n}" listed multiple times.`);
+              this.goals.unshift(goal);
+              return;
+            }
+            chosenSet.add(n);
+          }
+          for (const n of chosenSet) {
+            if (!ctx.some((h) => h.name === n)) {
+              this.addError(line, `Unknown hypothesis "${n}" in assume.`);
+              this.goals.unshift(goal);
+              return;
+            }
+          }
+          const firstCtx = ctx.filter((h) => chosenSet.has(h.name)).map((h) => ({ ...h }));
+          const secondCtx = ctx.filter((h) => !chosenSet.has(h.name)).map((h) => ({ ...h }));
+          // add new assumption to secondCtx (fresh name if needed)
+          let base = name;
+          let suffix = 1;
+          let candidate = base;
+          while (secondCtx.some((h) => h.name === candidate)) {
+            suffix += 1;
+            candidate = `${base}${suffix}`;
+          }
+          secondCtx.push({ name: candidate, type: renderFormula(parsed), formula: parsed });
+          putBack([mkGoal(parsed, firstCtx), mkGoal(target, secondCtx)]);
         } catch (err) {
           this.addError(line, (err as Error).message);
           this.goals.unshift(goal);
         }
+        return;
+      }
+
+      case "intro": {
+        // Introduce an implication (lolli) assumption: goal A ⊸ B -> assume A and continue with B
+        if (target.kind === "lolli") {
+          // optional name for the introduced hypothesis
+          const hName = argWords[0] || "h";
+          // find a fresh name
+          let base = hName;
+          let suffix = 1;
+          let candidate = base;
+          while (ctx.some((h) => h.name === candidate)) {
+            suffix += 1;
+            candidate = `${base}${suffix}`;
+          }
+          ctx.push({ name: candidate, type: renderFormula(target.left), formula: target.left });
+          putBack([mkGoal(target.right, ctx)]);
+          return;
+        }
+        this.addError(line, "intro applies only to lollipop (⊸) goals.");
+        this.goals.unshift(goal);
+        return;
+      }
+
+      case "apply": {
+        // apply a hypothesis of form A ⊸ B to the current goal B, consuming the hypothesis and producing subgoal A
+        if (argWords.length < 1) {
+          this.addError(line, "apply requires a hypothesis name.");
+          this.goals.unshift(goal);
+          return;
+        }
+        const hName = argWords[0];
+        const hIdx = ctx.findIndex((h) => h.name === hName);
+        if (hIdx === -1) {
+          this.addError(line, `Unknown hypothesis "${hName}".`);
+          this.goals.unshift(goal);
+          return;
+        }
+        const hyp = ctx[hIdx];
+        if (hyp.formula.kind !== "lolli") {
+          this.addError(line, `Hypothesis "${hName}" is not an implication.`);
+          this.goals.unshift(goal);
+          return;
+        }
+        if (!formulaEquals(hyp.formula.right, target)) {
+          this.addError(line, `Hypothesis "${hName}" does not conclude the current goal.`);
+          this.goals.unshift(goal);
+          return;
+        }
+        // consume the hypothesis
+        ctx.splice(hIdx, 1);
+        putBack([mkGoal(hyp.formula.left, ctx)]);
         return;
       }
 
