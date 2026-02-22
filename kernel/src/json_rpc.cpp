@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
+#include <stdexcept>
 
 namespace jsonrpc {
 
@@ -52,15 +53,14 @@ class Parser {
  public:
   explicit Parser(const std::string& input) : input_(input) {}
 
-  bool parse(Json& out, std::string& error) {
+  Json parse() {
     skipWs();
-    if (!parseValue(out, error)) return false;
+    Json out = parseValue();
     skipWs();
     if (pos_ != input_.size()) {
-      error = "Unexpected trailing characters at byte " + std::to_string(pos_);
-      return false;
+      throw std::invalid_argument("Unexpected trailing characters at byte " + std::to_string(pos_));
     }
-    return true;
+    return out;
   }
 
  private:
@@ -86,42 +86,38 @@ class Parser {
     out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
   }
 
-  bool parseHex4(unsigned& out, std::string& error) {
-    out = 0;
+  unsigned parseHex4() {
+    unsigned out = 0;
     for (int i = 0; i < 4; i++) {
       if (pos_ >= input_.size()) {
-        error = "Truncated unicode escape";
-        return false;
+        throw std::invalid_argument("Truncated unicode escape");
       }
       char c = input_[pos_++];
       out <<= 4;
-      if (c >= '0' && c <= '9')
+      if (c >= '0' && c <= '9') {
         out |= static_cast<unsigned>(c - '0');
-      else if (c >= 'a' && c <= 'f')
+      } else if (c >= 'a' && c <= 'f') {
         out |= static_cast<unsigned>(10 + c - 'a');
-      else if (c >= 'A' && c <= 'F')
+      } else if (c >= 'A' && c <= 'F') {
         out |= static_cast<unsigned>(10 + c - 'A');
-      else {
-        error = "Invalid hex digit in unicode escape";
-        return false;
+      } else {
+        throw std::invalid_argument("Invalid hex digit in unicode escape");
       }
     }
-    return true;
+    return out;
   }
 
-  bool parseString(std::string& out, std::string& error) {
+  std::string parseString() {
     if (!consume('"')) {
-      error = "Expected string at byte " + std::to_string(pos_);
-      return false;
+      throw std::invalid_argument("Expected string at byte " + std::to_string(pos_));
     }
 
-    out.clear();
+    std::string out;
     while (pos_ < input_.size()) {
       char c = input_[pos_++];
-      if (c == '"') return true;
+      if (c == '"') return out;
       if (static_cast<unsigned char>(c) < 0x20) {
-        error = "Control character in string";
-        return false;
+        throw std::invalid_argument("Control character in string");
       }
       if (c != '\\') {
         out.push_back(c);
@@ -129,8 +125,7 @@ class Parser {
       }
 
       if (pos_ >= input_.size()) {
-        error = "Truncated escape sequence";
-        return false;
+        throw std::invalid_argument("Truncated escape sequence");
       }
       char esc = input_[pos_++];
       switch (esc) {
@@ -154,48 +149,42 @@ class Parser {
         case 't':
           out.push_back('\t');
           break;
-        case 'u': {
-          unsigned cp = 0;
-          if (!parseHex4(cp, error)) return false;
-          appendUtf8(out, cp);
+        case 'u':
+          appendUtf8(out, parseHex4());
           break;
-        }
         default:
-          error = "Invalid escape sequence";
-          return false;
+          throw std::invalid_argument("Invalid escape sequence");
       }
     }
 
-    error = "Unterminated string";
-    return false;
+    throw std::invalid_argument("Unterminated string");
   }
 
-  bool parseNumber(Json& out, std::string& error) {
+  Json parseNumber() {
     size_t start = pos_;
     if (peek() == '-') pos_++;
     if (peek() == '0') {
       pos_++;
     } else {
       if (!std::isdigit(static_cast<unsigned char>(peek()))) {
-        error = "Invalid number";
-        return false;
+        throw std::invalid_argument("Invalid number");
       }
       while (std::isdigit(static_cast<unsigned char>(peek()))) pos_++;
     }
+
     if (peek() == '.') {
       pos_++;
       if (!std::isdigit(static_cast<unsigned char>(peek()))) {
-        error = "Invalid fractional part";
-        return false;
+        throw std::invalid_argument("Invalid fractional part");
       }
       while (std::isdigit(static_cast<unsigned char>(peek()))) pos_++;
     }
+
     if (peek() == 'e' || peek() == 'E') {
       pos_++;
       if (peek() == '+' || peek() == '-') pos_++;
       if (!std::isdigit(static_cast<unsigned char>(peek()))) {
-        error = "Invalid exponent";
-        return false;
+        throw std::invalid_argument("Invalid exponent");
       }
       while (std::isdigit(static_cast<unsigned char>(peek()))) pos_++;
     }
@@ -204,108 +193,78 @@ class Parser {
     char* end = nullptr;
     const double value = std::strtod(text.c_str(), &end);
     if (!end || *end != '\0' || !std::isfinite(value)) {
-      error = "Invalid number value";
-      return false;
+      throw std::invalid_argument("Invalid number value");
     }
-    out = Json(value);
-    return true;
+    return Json(value);
   }
 
-  bool parseArray(Json& out, std::string& error) {
+  Json parseArray() {
     if (!consume('[')) {
-      error = "Expected '['";
-      return false;
+      throw std::invalid_argument("Expected '['");
     }
 
     Json::array_t arr;
     skipWs();
     if (consume(']')) {
-      out = Json(std::move(arr));
-      return true;
+      return Json(std::move(arr));
     }
 
     while (true) {
-      Json item;
-      if (!parseValue(item, error)) return false;
-      arr.push_back(std::move(item));
+      arr.push_back(parseValue());
       skipWs();
       if (consume(']')) {
-        out = Json(std::move(arr));
-        return true;
+        return Json(std::move(arr));
       }
       if (!consume(',')) {
-        error = "Expected ',' or ']' in array";
-        return false;
+        throw std::invalid_argument("Expected ',' or ']' in array");
       }
       skipWs();
     }
   }
 
-  bool parseObject(Json& out, std::string& error) {
+  Json parseObject() {
     if (!consume('{')) {
-      error = "Expected '{'";
-      return false;
+      throw std::invalid_argument("Expected '{'");
     }
 
     Json::object_t obj;
     skipWs();
     if (consume('}')) {
-      out = Json(std::move(obj));
-      return true;
+      return Json(std::move(obj));
     }
 
     while (true) {
-      std::string key;
-      if (!parseString(key, error)) return false;
+      std::string key = parseString();
       skipWs();
       if (!consume(':')) {
-        error = "Expected ':' in object";
-        return false;
+        throw std::invalid_argument("Expected ':' in object");
       }
       skipWs();
-      Json value;
-      if (!parseValue(value, error)) return false;
-      obj[key] = std::move(value);
+      obj[key] = parseValue();
       skipWs();
       if (consume('}')) {
-        out = Json(std::move(obj));
-        return true;
+        return Json(std::move(obj));
       }
       if (!consume(',')) {
-        error = "Expected ',' or '}' in object";
-        return false;
+        throw std::invalid_argument("Expected ',' or '}' in object");
       }
       skipWs();
     }
   }
 
-  bool parseValue(Json& out, std::string& error) {
+  Json parseValue() {
     char c = peek();
     if (c == '"') {
-      std::string s;
-      if (!parseString(s, error)) return false;
-      out = Json(std::move(s));
-      return true;
+      return Json(parseString());
     }
-    if (c == '{') return parseObject(out, error);
-    if (c == '[') return parseArray(out, error);
-    if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) return parseNumber(out, error);
+    if (c == '{') return parseObject();
+    if (c == '[') return parseArray();
+    if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) return parseNumber();
+    if (match("true")) return Json(true);
+    if (match("false")) return Json(false);
+    if (match("null")) return Json(nullptr);
 
-    if (match("true")) {
-      out = Json(true);
-      return true;
-    }
-    if (match("false")) {
-      out = Json(false);
-      return true;
-    }
-    if (match("null")) {
-      out = Json(nullptr);
-      return true;
-    }
-
-    error = "Unexpected token at byte " + std::to_string(pos_);
-    return false;
+    throw std::invalid_argument("Unexpected token at byte " + std::to_string(pos_));
   }
 
   void skipWs() {
@@ -425,9 +384,9 @@ void serializeValue(const Json& value, std::string& out) {
 
 }  // namespace
 
-bool parseJson(const std::string& input, Json& out, std::string& error) {
+Json parseJson(const std::string& input) {
   Parser parser(input);
-  return parser.parse(out, error);
+  return parser.parse();
 }
 
 std::string serializeJson(const Json& value) {
@@ -437,12 +396,10 @@ std::string serializeJson(const Json& value) {
   return out;
 }
 
-bool parseRpcRequest(const std::string& input, RpcRequest& out, std::string& error) {
-  Json root;
-  if (!parseJson(input, root, error)) return false;
+RpcRequest parseRpcRequest(const std::string& input) {
+  Json root = parseJson(input);
   if (!root.isObject()) {
-    error = "JSON-RPC request must be an object";
-    return false;
+    throw std::invalid_argument("JSON-RPC request must be an object");
   }
 
   const Json* jsonrpc = root.get("jsonrpc");
@@ -451,22 +408,20 @@ bool parseRpcRequest(const std::string& input, RpcRequest& out, std::string& err
   const Json* params = root.get("params");
 
   if (!jsonrpc || !jsonrpc->isString() || jsonrpc->asString() != "2.0") {
-    error = "Missing or invalid jsonrpc field";
-    return false;
+    throw std::invalid_argument("Missing or invalid jsonrpc field");
   }
   if (!id) {
-    error = "Missing id field";
-    return false;
+    throw std::invalid_argument("Missing id field");
   }
   if (!method || !method->isString()) {
-    error = "Missing or invalid method field";
-    return false;
+    throw std::invalid_argument("Missing or invalid method field");
   }
 
+  RpcRequest out;
   out.id = *id;
   out.method = method->asString();
   out.params = params ? *params : Json(nullptr);
-  return true;
+  return out;
 }
 
 std::string makeRpcSuccess(const Json& id, const Json& result) {

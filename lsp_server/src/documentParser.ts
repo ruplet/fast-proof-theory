@@ -25,6 +25,8 @@ const tacticNames = new Set(
     "destruct",
     "cases",
     "assume",
+    "translate",
+    "translate_to",
   ].map((t) => t.toLowerCase())
 );
 
@@ -39,6 +41,7 @@ export function parseDocumentToIR(uri: string, version: number, text: string): D
   let theoremCounter = 1;
   let current: TheoremIR = {
     name: `theorem${theoremCounter}`,
+    proofSystem: "LL",
     range: mkRange(0, 0, 0),
     hypotheses: [],
     goals: [],
@@ -52,11 +55,12 @@ export function parseDocumentToIR(uri: string, version: number, text: string): D
     }
   };
 
-  const startTheorem = (name: string, line: number) => {
+  const startTheorem = (name: string, proofSystem: string, line: number) => {
     flush();
     theoremCounter += 1;
     current = {
       name: name || `theorem${theoremCounter}`,
+      proofSystem: proofSystem || "LL",
       range: mkRange(line, 0, line),
       hypotheses: [],
       goals: [],
@@ -71,14 +75,16 @@ export function parseDocumentToIR(uri: string, version: number, text: string): D
       return;
     }
 
-    const theoremMatch = line.match(/^theorem(?:\s+([A-Za-z_][A-Za-z0-9_]*))?$/i);
+    const theoremMatch = line.match(
+      /^theorem(?:\s+([A-Za-z_][A-Za-z0-9_]*))?(?:\s+using\s+([A-Za-z_][A-Za-z0-9_]*))?$/i
+    );
     if (theoremMatch) {
-      startTheorem(theoremMatch[1] ?? "", idx);
+      startTheorem(theoremMatch[1] ?? "", theoremMatch[2] ?? "LL", idx);
       return;
     }
 
     if (line === "end") {
-      startTheorem("", idx);
+      startTheorem("", "LL", idx);
       return;
     }
 

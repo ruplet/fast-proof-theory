@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(mypa-kernel
+  src/document_codec.cpp
   src/main.cpp
+  src/proof_system.cpp
   src/json_rpc.cpp
 )

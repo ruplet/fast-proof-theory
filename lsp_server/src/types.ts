@@ -25,6 +25,7 @@ export type TacticStep = {
 
 export type TheoremIR = {
   name: string;
+  proofSystem: string;
   range: Range;
   hypotheses: HypDecl[];
   goals: GoalDecl[];

@@ -103,6 +103,13 @@ async function startLanguageClient(context) {
     const cfg = vscode.workspace.getConfiguration("mypa");
     const configuredPath = cfg.get("lspServerPath")?.trim();
     const serverModule = configuredPath || path.resolve(context.extensionPath, "..", "lsp_server", "out", "server.js");
+    output?.appendLine(`[mypa] lsp.serverModule=${serverModule}`);
+    if (configuredPath) {
+        output?.appendLine("[mypa] lsp.serverModule source=config(mypa.lspServerPath)");
+    }
+    else {
+        output?.appendLine("[mypa] lsp.serverModule source=default");
+    }
     const serverOptions = {
         run: { module: serverModule, transport: vscode_languageclient_1.TransportKind.stdio },
         debug: { module: serverModule, transport: vscode_languageclient_1.TransportKind.stdio },

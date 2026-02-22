@@ -1,0 +1,28 @@
+theorem ll_tensor_intro using LL
+hyp ha : a
+hyp hb : b
+goal a ⊗ b
+split ha
+init ha
+init hb
+
+theorem ipc_identity using IPC
+hyp h : a
+goal a
+init h
+
+theorem cpc_identity using CPC
+hyp h : a
+goal a
+init h
+
+theorem cpc_to_ipc_double_negation using CPC
+hyp h : (a ⊸ ⊥) ⊸ ⊥
+goal a
+translate IPC
+init h
+
+theorem stlc_identity using STLC
+goal a ⊸ a
+intro x
+init x

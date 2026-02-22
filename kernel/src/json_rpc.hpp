@@ -8,6 +8,12 @@
 
 namespace jsonrpc {
 
+namespace RpcErrorCode {
+constexpr int kParseError = -32700;
+constexpr int kMethodNotFound = -32601;
+constexpr int kInvalidParams = -32602;
+}  // namespace RpcErrorCode
+
 class Json {
  public:
   using array_t = std::vector<Json>;
@@ -50,10 +56,10 @@ struct RpcRequest {
   Json params;
 };
 
-bool parseJson(const std::string& input, Json& out, std::string& error);
+Json parseJson(const std::string& input);
 std::string serializeJson(const Json& value);
 
-bool parseRpcRequest(const std::string& input, RpcRequest& out, std::string& error);
+RpcRequest parseRpcRequest(const std::string& input);
 std::string makeRpcSuccess(const Json& id, const Json& result);
 std::string makeRpcError(const Json& id, int code, const std::string& message);
 
