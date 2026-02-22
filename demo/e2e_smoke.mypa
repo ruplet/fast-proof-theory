@@ -1,0 +1,4 @@
+theorem smoke
+hyp h : a
+goal a
+init h

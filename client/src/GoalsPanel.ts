@@ -21,6 +21,7 @@ type WebviewMsg =
   | { type: "clear" };
 
 export class GoalsPanel implements vscode.Disposable {
+  private static currentPanel: GoalsPanel | undefined;
   private panel: vscode.WebviewPanel;
   private disposed = false;
 
@@ -36,6 +37,9 @@ export class GoalsPanel implements vscode.Disposable {
 
     this.panel.onDidDispose(() => {
       this.disposed = true;
+      if (GoalsPanel.currentPanel === this) {
+        GoalsPanel.currentPanel = undefined;
+      }
     });
   }
 
@@ -45,6 +49,12 @@ export class GoalsPanel implements vscode.Disposable {
     viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
     preserveFocus = false
   ): GoalsPanel {
+    const existing = GoalsPanel.currentPanel;
+    if (existing && !existing.isDisposed()) {
+      existing.reveal(viewColumn, preserveFocus);
+      return existing;
+    }
+
     const panel = vscode.window.createWebviewPanel(
       "mypaGoals",
       "Goals",
@@ -56,7 +66,9 @@ export class GoalsPanel implements vscode.Disposable {
       }
     );
 
-    return new GoalsPanel(panel, context.extensionUri);
+    const created = new GoalsPanel(panel, context.extensionUri);
+    GoalsPanel.currentPanel = created;
+    return created;
   }
 
   /** Set the proof state: hypotheses (name:type) and goals. */
@@ -71,6 +83,10 @@ export class GoalsPanel implements vscode.Disposable {
     if (this.disposed) return;
     const msg: WebviewMsg = { type: "clear" };
     void this.panel.webview.postMessage(msg);
+  }
+
+  isDisposed(): boolean {
+    return this.disposed;
   }
 
   reveal(viewColumn?: vscode.ViewColumn, preserveFocus = false) {

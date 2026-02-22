@@ -47,16 +47,26 @@ class GoalsPanel {
         this.panel.webview.html = this.renderHtml(this.panel.webview, extensionUri);
         this.panel.onDidDispose(() => {
             this.disposed = true;
+            if (GoalsPanel.currentPanel === this) {
+                GoalsPanel.currentPanel = undefined;
+            }
         });
     }
     /** Create (or reveal) a Goals panel. */
     static createOrShow(context, viewColumn = vscode.ViewColumn.Beside, preserveFocus = false) {
+        const existing = GoalsPanel.currentPanel;
+        if (existing && !existing.isDisposed()) {
+            existing.reveal(viewColumn, preserveFocus);
+            return existing;
+        }
         const panel = vscode.window.createWebviewPanel("mypaGoals", "Goals", { viewColumn, preserveFocus }, {
             enableScripts: true,
             localResourceRoots: [context.extensionUri],
             retainContextWhenHidden: true,
         });
-        return new GoalsPanel(panel, context.extensionUri);
+        const created = new GoalsPanel(panel, context.extensionUri);
+        GoalsPanel.currentPanel = created;
+        return created;
     }
     /** Set the proof state: hypotheses (name:type) and goals. */
     setProofState(state) {
@@ -71,6 +81,9 @@ class GoalsPanel {
             return;
         const msg = { type: "clear" };
         void this.panel.webview.postMessage(msg);
+    }
+    isDisposed() {
+        return this.disposed;
     }
     reveal(viewColumn, preserveFocus = false) {
         if (this.disposed)

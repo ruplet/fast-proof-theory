@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package prover;
+
+import "common.proto";
+
+message Formula {
+  oneof node {
+    Atom atom = 1;
+    Binary tensor = 2;
+    Binary with = 3;
+    Binary plus = 4;
+    Binary lolli = 5;
+    Unary bang = 6;
+    Unit one = 7;
+    Unit top = 8;
+    Unit bot = 9;
+    Unit zero = 10;
+  }
+}
+
+message Atom {
+  string name = 1;
+  bool negated = 2;
+}
+
+message Unary {
+  Formula of = 1;
+}
+
+message Binary {
+  Formula left = 1;
+  Formula right = 2;
+}
+
+message Unit {}
+
+message HypDecl {
+  string name = 1;
+  Formula formula = 2;
+  Range range = 3;
+}
+
+message GoalDecl {
+  Formula formula = 1;
+  Range range = 2;
+}
+
+message TacticStep {
+  string name = 1;
+  repeated string args = 2;
+  Range range = 3;
+  string assume_name = 4;
+  Formula assume_formula = 5;
+}
+
+message Theorem {
+  string name = 1;
+  Range range = 2;
+  repeated HypDecl hypotheses = 3;
+  repeated GoalDecl goals = 4;
+  repeated TacticStep tactics = 5;
+}
+
+message DocumentIR {
+  string uri = 1;
+  uint32 version = 2;
+  repeated Theorem theorems = 3;
+}
