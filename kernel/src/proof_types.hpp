@@ -79,7 +79,8 @@ struct InputTactic {
 
 struct InputTheorem {
   std::string name;
-  std::string proofSystem;
+  std::string logic;
+  std::string calculus;
   std::vector<InputHypDecl> hypotheses;
   std::vector<InputGoalDecl> goals;
   std::vector<InputTactic> tactics;

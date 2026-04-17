@@ -60,7 +60,9 @@ message Theorem {
   repeated HypDecl hypotheses = 3;
   repeated GoalDecl goals = 4;
   repeated TacticStep tactics = 5;
-  string proof_system = 6;
+  reserved 6;
+  string logic = 7;
+  string calculus = 8;
 }
 
 message DocumentIR {

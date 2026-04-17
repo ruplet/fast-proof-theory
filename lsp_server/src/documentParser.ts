@@ -37,11 +37,102 @@ function mkRange(line: number, start: number, end: number): Range {
   };
 }
 
+type TheoremProfile = {
+  logic: string;
+  calculus: string;
+};
+
+enum LogicToken {
+  LL = "LL",
+  IPC = "IPC",
+  CPC = "CPC",
+  STLC = "STLC",
+}
+
+enum CalculusToken {
+  ND = "ND",
+  GENTZEN = "GENTZEN",
+  HILBERT = "HILBERT",
+  FREGE = "FREGE",
+}
+
+const LOGIC_DEFAULT_CALCULUS: ReadonlyMap<LogicToken, CalculusToken> = new Map([
+  [LogicToken.LL, CalculusToken.GENTZEN],
+  [LogicToken.IPC, CalculusToken.ND],
+  [LogicToken.CPC, CalculusToken.ND],
+  [LogicToken.STLC, CalculusToken.ND],
+]);
+
+const CALCULUS_DEFAULT_LOGIC: ReadonlyMap<CalculusToken, LogicToken> = new Map([
+  [CalculusToken.ND, LogicToken.IPC],
+  [CalculusToken.GENTZEN, LogicToken.LL],
+  [CalculusToken.HILBERT, LogicToken.CPC],
+  [CalculusToken.FREGE, LogicToken.CPC],
+]);
+
+const LOGIC_TOKENS: ReadonlyMap<string, LogicToken> = new Map(
+  Object.values(LogicToken).map((value) => [value, value])
+);
+
+const CALCULUS_TOKENS: ReadonlyMap<string, CalculusToken> = new Map(
+  Object.values(CalculusToken).map((value) => [value, value])
+);
+
+function parseTheoremProfileSpec(specText: string): TheoremProfile {
+  const trimmed = specText.trim();
+  if (!trimmed) return { logic: LogicToken.LL, calculus: CalculusToken.GENTZEN };
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return { logic: LogicToken.LL, calculus: CalculusToken.GENTZEN };
+
+  const first = tokens[0].toUpperCase();
+
+  if (tokens.length === 1) {
+    const logic = LOGIC_TOKENS.get(first);
+    if (logic) {
+      const defaultCalculus = LOGIC_DEFAULT_CALCULUS.get(logic);
+      if (!defaultCalculus) throw new Error(`No default calculus for logic "${logic}".`);
+      return { logic, calculus: defaultCalculus };
+    }
+
+    const calculus = CALCULUS_TOKENS.get(first);
+    if (calculus) {
+      const defaultLogic = CALCULUS_DEFAULT_LOGIC.get(calculus);
+      if (!defaultLogic) throw new Error(`No default logic for calculus "${calculus}".`);
+      return { logic: defaultLogic, calculus };
+    }
+
+    throw new Error(`Unknown theorem profile token "${tokens[0]}".`);
+  }
+
+  if (tokens.length === 2) {
+    const logic = LOGIC_TOKENS.get(first);
+    const calculus = CALCULUS_TOKENS.get(tokens[1].toUpperCase());
+    if (!logic) throw new Error(`Unknown logic token "${tokens[0]}".`);
+    if (!calculus) throw new Error(`Unknown calculus token "${tokens[1]}".`);
+    return { logic, calculus };
+  }
+
+  if (tokens.length === 3) {
+    const connector = tokens[1].toLowerCase();
+    if (connector !== "in" && connector !== "with" && connector !== "via") {
+      throw new Error(`Invalid theorem profile connector "${tokens[1]}". Use in|with|via.`);
+    }
+    const logic = LOGIC_TOKENS.get(first);
+    const calculus = CALCULUS_TOKENS.get(tokens[2].toUpperCase());
+    if (!logic) throw new Error(`Unknown logic token "${tokens[0]}".`);
+    if (!calculus) throw new Error(`Unknown calculus token "${tokens[2]}".`);
+    return { logic, calculus };
+  }
+
+  throw new Error(`Invalid theorem profile "${trimmed}".`);
+}
+
 export function parseDocumentToIR(uri: string, version: number, text: string): DocumentIR {
   let theoremCounter = 1;
   let current: TheoremIR = {
     name: `theorem${theoremCounter}`,
-    proofSystem: "LL",
+    logic: LogicToken.LL,
+    calculus: CalculusToken.GENTZEN,
     range: mkRange(0, 0, 0),
     hypotheses: [],
     goals: [],
@@ -55,12 +146,13 @@ export function parseDocumentToIR(uri: string, version: number, text: string): D
     }
   };
 
-  const startTheorem = (name: string, proofSystem: string, line: number) => {
+  const startTheorem = (name: string, profile: TheoremProfile, line: number) => {
     flush();
     theoremCounter += 1;
     current = {
       name: name || `theorem${theoremCounter}`,
-      proofSystem: proofSystem || "LL",
+      logic: profile.logic,
+      calculus: profile.calculus,
       range: mkRange(line, 0, line),
       hypotheses: [],
       goals: [],
@@ -75,16 +167,14 @@ export function parseDocumentToIR(uri: string, version: number, text: string): D
       return;
     }
 
-    const theoremMatch = line.match(
-      /^theorem(?:\s+([A-Za-z_][A-Za-z0-9_]*))?(?:\s+using\s+([A-Za-z_][A-Za-z0-9_]*))?$/i
-    );
+    const theoremMatch = line.match(/^theorem(?:\s+([A-Za-z_][A-Za-z0-9_]*))?(?:\s+using\s+(.+))?$/i);
     if (theoremMatch) {
-      startTheorem(theoremMatch[1] ?? "", theoremMatch[2] ?? "LL", idx);
+      startTheorem(theoremMatch[1] ?? "", parseTheoremProfileSpec(theoremMatch[2] ?? "LL"), idx);
       return;
     }
 
     if (line === "end") {
-      startTheorem("", "LL", idx);
+      startTheorem("", { logic: LogicToken.LL, calculus: CalculusToken.GENTZEN }, idx);
       return;
     }
 

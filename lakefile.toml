@@ -1,0 +1,10 @@
+name = "fast-proof-theory"
+version = "0.1.0"
+defaultTargets = ["fast-proof-theory"]
+
+[[lean_lib]]
+name = "FastProofTheory"
+
+[[lean_exe]]
+name = "fast-proof-theory"
+root = "Main"

@@ -36,7 +36,8 @@ struct GoalNode {
   std::string id;
   std::vector<InternalHypothesis> ctx;
   std::shared_ptr<Formula> target;
-  ProofSystemId proofSystem;
+  LogicId logic;
+  CalculusId calculus;
 };
 
 struct EngineError {
@@ -188,11 +189,71 @@ static RuleId ruleForTacticKind(TacticKind kind) {
   return RuleId::InitOrAxiom;
 }
 
+struct TranslateTarget {
+  LogicId logic;
+  CalculusId calculus;
+};
+
+static TranslateTarget parseTranslateTarget(const std::vector<std::string>& args,
+                                            LogicId currentLogic,
+                                            CalculusId currentCalculus) {
+  if (args.empty()) {
+    throw std::invalid_argument("translate expects at least one argument.");
+  }
+
+  if (args.size() == 1) {
+    const std::string& token = args[0];
+    try {
+      LogicId logic = parseLogicId(token);
+      try {
+        lookupProofProfile(logic, currentCalculus);
+        return {logic, currentCalculus};
+      } catch (...) {
+        return {logic, defaultCalculusForLogic(logic)};
+      }
+    } catch (...) {
+      // Not a logic token.
+    }
+
+    try {
+      CalculusId calculus = parseCalculusId(token);
+      lookupProofProfile(currentLogic, calculus);
+      return {currentLogic, calculus};
+    } catch (...) {
+      // Not a calculus token or incompatible with current logic.
+    }
+
+    throw std::invalid_argument("Unknown translate target \"" + token +
+                                "\". Use LOGIC or CALCULUS or LOGIC CALCULUS.");
+  }
+
+  if (args.size() == 2) {
+    LogicId logic = parseLogicId(args[0]);
+    CalculusId calculus = parseCalculusId(args[1]);
+    lookupProofProfile(logic, calculus);
+    return {logic, calculus};
+  }
+
+  if (args.size() == 3) {
+    const std::string connector = toLowerAscii(args[1]);
+    if (connector != "in" && connector != "with" && connector != "via") {
+      throw std::invalid_argument("translate 3-argument form expects connector in|with|via.");
+    }
+    LogicId logic = parseLogicId(args[0]);
+    CalculusId calculus = parseCalculusId(args[2]);
+    lookupProofProfile(logic, calculus);
+    return {logic, calculus};
+  }
+
+  throw std::invalid_argument("translate accepts one, two, or three arguments.");
+}
+
 static GoalNode makeGoalNode(int& goalCounter,
                              const std::shared_ptr<Formula>& formula,
                              const std::vector<InternalHypothesis>& ctx,
-                             ProofSystemId proofSystem) {
-  return GoalNode{"g" + std::to_string(++goalCounter), ctx, formula, proofSystem};
+                             LogicId logic,
+                             CalculusId calculus) {
+  return GoalNode{"g" + std::to_string(++goalCounter), ctx, formula, logic, calculus};
 }
 
 static void prependGoals(std::vector<GoalNode>& goals, const std::vector<GoalNode>& newGoals) {
@@ -232,7 +293,7 @@ static int findHypIndex(const std::vector<InternalHypothesis>& ctx, const std::s
 
 class ProofEngine {
  public:
-  explicit ProofEngine(ProofSystemId systemId) : defaultSystem_(systemId) {}
+  explicit ProofEngine(LogicId logic, CalculusId calculus) : defaultLogic_(logic), defaultCalculus_(calculus) {}
 
   void addError(int line, const std::string& msg) { errors_.push_back({line, msg}); }
 
@@ -243,7 +304,8 @@ class ProofEngine {
   }
 
   void addGoal(const std::shared_ptr<Formula>& target) {
-    goals_.push_back({"g" + std::to_string(++goalCounter_), globalHyps_, target, defaultSystem_});
+    goals_.push_back(
+        {"g" + std::to_string(++goalCounter_), globalHyps_, target, defaultLogic_, defaultCalculus_});
   }
 
   void applyTactic(const std::string& name,
@@ -260,14 +322,18 @@ class ProofEngine {
     goals_.erase(goals_.begin());
     std::vector<InternalHypothesis> ctx = goal.ctx;
     std::shared_ptr<Formula> target = goal.target;
-    ProofSystemId goalSystem = goal.proofSystem;
+    LogicId goalLogic = goal.logic;
+    CalculusId goalCalculus = goal.calculus;
     const std::string normalized = toLowerAscii(name);
     TacticKind tacticKind = parseTacticKind(normalized);
 
     if (tacticKind != TacticKind::Unknown &&
-        !isRuleAllowed(goalSystem, ruleForTacticKind(tacticKind))) {
-      addError(line, "Rule \"" + normalized + "\" is not allowed in proof system " +
-                         proofSystemDisplayName(goalSystem) + ".");
+        !isRuleAllowed(goalLogic, goalCalculus, ruleForTacticKind(tacticKind))) {
+      const ProofChildrenContainerId children =
+          lookupProofProfile(goalLogic, goalCalculus).childrenContainer;
+      addError(line, "Rule \"" + normalized + "\" is not allowed in proof profile " +
+                         proofProfileDisplayName(goalLogic, goalCalculus) + " (children: " +
+                         proofChildrenContainerDisplayName(children) + ").");
       restoreGoalFront(goals_, goal);
       return;
     }
@@ -341,15 +407,15 @@ class ProofEngine {
 
           prependGoals(
               goals_,
-              {makeGoalNode(goalCounter_, target->left, firstCtx, goalSystem),
-               makeGoalNode(goalCounter_, target->right, secondCtx, goalSystem)});
+              {makeGoalNode(goalCounter_, target->left, firstCtx, goalLogic, goalCalculus),
+               makeGoalNode(goalCounter_, target->right, secondCtx, goalLogic, goalCalculus)});
           return;
         }
 
         if (target->kind == FormulaKind::With) {
           prependGoals(goals_,
-                       {makeGoalNode(goalCounter_, target->left, ctx, goalSystem),
-                        makeGoalNode(goalCounter_, target->right, ctx, goalSystem)});
+                       {makeGoalNode(goalCounter_, target->left, ctx, goalLogic, goalCalculus),
+                        makeGoalNode(goalCounter_, target->right, ctx, goalLogic, goalCalculus)});
           return;
         }
 
@@ -360,8 +426,8 @@ class ProofEngine {
       case TacticKind::With: {
         if (target->kind == FormulaKind::With) {
           prependGoals(goals_,
-                       {makeGoalNode(goalCounter_, target->left, ctx, goalSystem),
-                        makeGoalNode(goalCounter_, target->right, ctx, goalSystem)});
+                       {makeGoalNode(goalCounter_, target->left, ctx, goalLogic, goalCalculus),
+                        makeGoalNode(goalCounter_, target->right, ctx, goalLogic, goalCalculus)});
           return;
         }
         addError(line, "Current goal is not a with (&).");
@@ -370,7 +436,7 @@ class ProofEngine {
       }
       case TacticKind::LeftOrInl: {
         if (target->kind == FormulaKind::Plus) {
-          prependGoals(goals_, {makeGoalNode(goalCounter_, target->left, ctx, goalSystem)});
+          prependGoals(goals_, {makeGoalNode(goalCounter_, target->left, ctx, goalLogic, goalCalculus)});
           return;
         }
         addError(line, "left/inl applies only to ⊕ goals.");
@@ -379,7 +445,7 @@ class ProofEngine {
       }
       case TacticKind::RightOrInr: {
         if (target->kind == FormulaKind::Plus) {
-          prependGoals(goals_, {makeGoalNode(goalCounter_, target->right, ctx, goalSystem)});
+          prependGoals(goals_, {makeGoalNode(goalCounter_, target->right, ctx, goalLogic, goalCalculus)});
           return;
         }
         addError(line, "right/inr applies only to ⊕ goals.");
@@ -403,12 +469,12 @@ class ProofEngine {
           }
           std::string newName = makeFreshName(ctx, hName + "_derelict");
           ctx.push_back({newName, renderFormula(hyp.formula->of), hyp.formula->of});
-          prependGoals(goals_, {GoalNode{goal.id, ctx, goal.target, goalSystem}});
+          prependGoals(goals_, {GoalNode{goal.id, ctx, goal.target, goalLogic, goalCalculus}});
           return;
         }
 
         if (target->kind == FormulaKind::Bang) {
-          prependGoals(goals_, {makeGoalNode(goalCounter_, target->of, ctx, goalSystem)});
+          prependGoals(goals_, {makeGoalNode(goalCounter_, target->of, ctx, goalLogic, goalCalculus)});
           return;
         }
 
@@ -438,7 +504,7 @@ class ProofEngine {
             return;
           }
         }
-        prependGoals(goals_, {makeGoalNode(goalCounter_, target->of, ctx, goalSystem)});
+        prependGoals(goals_, {makeGoalNode(goalCounter_, target->of, ctx, goalLogic, goalCalculus)});
         return;
       }
       case TacticKind::DestructOrCases: {
@@ -469,7 +535,7 @@ class ProofEngine {
           newCtx.push_back({leftName, renderFormula(hyp.formula->left), hyp.formula->left});
           std::string rightName = makeFreshName(newCtx, hName + "_right");
           newCtx.push_back({rightName, renderFormula(hyp.formula->right), hyp.formula->right});
-          prependGoals(goals_, {GoalNode{goal.id, newCtx, goal.target, goalSystem}});
+          prependGoals(goals_, {GoalNode{goal.id, newCtx, goal.target, goalLogic, goalCalculus}});
           return;
         }
 
@@ -490,7 +556,7 @@ class ProofEngine {
           std::vector<InternalHypothesis> newCtx = withoutHyp;
           std::string newName = makeFreshName(newCtx, hName + "_" + branch);
           newCtx.push_back({newName, renderFormula(selected), selected});
-          prependGoals(goals_, {GoalNode{goal.id, newCtx, goal.target, goalSystem}});
+          prependGoals(goals_, {GoalNode{goal.id, newCtx, goal.target, goalLogic, goalCalculus}});
           return;
         }
 
@@ -501,8 +567,8 @@ class ProofEngine {
           firstCtx.push_back({leftName, renderFormula(hyp.formula->left), hyp.formula->left});
           std::string rightName = makeFreshName(secondCtx, hName + "_right");
           secondCtx.push_back({rightName, renderFormula(hyp.formula->right), hyp.formula->right});
-          prependGoals(goals_, {GoalNode{goal.id, firstCtx, goal.target, goalSystem},
-                                GoalNode{goal.id, secondCtx, goal.target, goalSystem}});
+          prependGoals(goals_, {GoalNode{goal.id, firstCtx, goal.target, goalLogic, goalCalculus},
+                                GoalNode{goal.id, secondCtx, goal.target, goalLogic, goalCalculus}});
           return;
         }
 
@@ -542,8 +608,8 @@ class ProofEngine {
           std::string resName = makeFreshName(secondCtx, hName + "_res");
           secondCtx.push_back({resName, renderFormula(hyp.formula->right), hyp.formula->right});
 
-          prependGoals(goals_, {makeGoalNode(goalCounter_, hyp.formula->left, firstCtx, goalSystem),
-                                GoalNode{goal.id, secondCtx, goal.target, goalSystem}});
+          prependGoals(goals_, {makeGoalNode(goalCounter_, hyp.formula->left, firstCtx, goalLogic, goalCalculus),
+                                GoalNode{goal.id, secondCtx, goal.target, goalLogic, goalCalculus}});
           return;
         }
 
@@ -607,8 +673,8 @@ class ProofEngine {
         }
 
         secondCtx.push_back({fresh, renderFormula(assumeFormula), assumeFormula});
-        prependGoals(goals_, {makeGoalNode(goalCounter_, assumeFormula, firstCtx, goalSystem),
-                              makeGoalNode(goalCounter_, target, secondCtx, goalSystem)});
+        prependGoals(goals_, {makeGoalNode(goalCounter_, assumeFormula, firstCtx, goalLogic, goalCalculus),
+                              makeGoalNode(goalCounter_, target, secondCtx, goalLogic, goalCalculus)});
         return;
       }
       case TacticKind::Intro: {
@@ -635,7 +701,7 @@ class ProofEngine {
         }
 
         ctx.push_back({fresh, renderFormula(target->left), target->left});
-        prependGoals(goals_, {makeGoalNode(goalCounter_, target->right, ctx, goalSystem)});
+        prependGoals(goals_, {makeGoalNode(goalCounter_, target->right, ctx, goalLogic, goalCalculus)});
         return;
       }
       case TacticKind::Apply: {
@@ -665,19 +731,13 @@ class ProofEngine {
         }
 
         ctx.erase(ctx.begin() + idx);
-        prependGoals(goals_, {makeGoalNode(goalCounter_, hyp.formula->left, ctx, goalSystem)});
+        prependGoals(goals_, {makeGoalNode(goalCounter_, hyp.formula->left, ctx, goalLogic, goalCalculus)});
         return;
       }
       case TacticKind::Translate: {
-        if (argWords.size() != 1) {
-          addError(line, "translate expects exactly one argument: target proof system.");
-          restoreGoalFront(goals_, goal);
-          return;
-        }
-
-        ProofSystemId targetSystem;
+        TranslateTarget targetProfile;
         try {
-          targetSystem = parseProofSystemId(argWords[0]);
+          targetProfile = parseTranslateTarget(argWords, goalLogic, goalCalculus);
         } catch (const std::exception& ex) {
           addError(line, ex.what());
           restoreGoalFront(goals_, goal);
@@ -686,14 +746,19 @@ class ProofEngine {
 
         std::shared_ptr<Formula> translated;
         try {
-          translated = translateFormula(target, goalSystem, targetSystem);
+          translated = translateFormula(target,
+                                        goalLogic,
+                                        goalCalculus,
+                                        targetProfile.logic,
+                                        targetProfile.calculus);
         } catch (const std::exception& ex) {
           addError(line, ex.what());
           restoreGoalFront(goals_, goal);
           return;
         }
 
-        prependGoals(goals_, {GoalNode{goal.id, ctx, translated, targetSystem}});
+        prependGoals(goals_,
+                     {GoalNode{goal.id, ctx, translated, targetProfile.logic, targetProfile.calculus}});
         return;
       }
       case TacticKind::Unknown:
@@ -724,7 +789,8 @@ class ProofEngine {
   std::vector<GoalNode> goals_;
   std::vector<EngineError> errors_;
   int goalCounter_ = 0;
-  ProofSystemId defaultSystem_;
+  LogicId defaultLogic_;
+  CalculusId defaultCalculus_;
 };
 
 namespace {
@@ -780,20 +846,48 @@ struct EvaluationResult {
   std::vector<Goal> goals;
 };
 
+void resolveTheoremProfile(const InputTheorem& theorem, LogicId& logicOut, CalculusId& calculusOut) {
+  const bool hasLogic = !theorem.logic.empty();
+  const bool hasCalculus = !theorem.calculus.empty();
+
+  if (hasLogic && hasCalculus) {
+    logicOut = parseLogicId(theorem.logic);
+    calculusOut = parseCalculusId(theorem.calculus);
+    lookupProofProfile(logicOut, calculusOut);
+    return;
+  }
+
+  if (hasLogic && !hasCalculus) {
+    logicOut = parseLogicId(theorem.logic);
+    calculusOut = defaultCalculusForLogic(logicOut);
+    lookupProofProfile(logicOut, calculusOut);
+    return;
+  }
+
+  if (!hasLogic && hasCalculus) {
+    throw std::invalid_argument("Theorem \"" + theorem.name +
+                                "\" sets calculus without logic; provide both.");
+  }
+
+  throw std::invalid_argument("Theorem \"" + theorem.name +
+                              "\" must define both logic and calculus.");
+}
+
 EvaluationResult evaluateDocument(const InputDocument& doc) {
   EvaluationResult out;
 
   for (const auto& theorem : doc.theorems) {
-    ProofSystemId theoremSystem;
+    LogicId theoremLogic;
+    CalculusId theoremCalculus;
     try {
-      theoremSystem = parseProofSystemId(theorem.proofSystem);
+      resolveTheoremProfile(theorem, theoremLogic, theoremCalculus);
     } catch (const std::exception& ex) {
       out.diagnostics.push_back(
-          {0, 0, 0, 1, 1, "KERNEL_PROOF_SYSTEM", "kernel", ex.what()});
+          {0, 0, 0, 1, 1, "KERNEL_PROFILE", "kernel", ex.what()});
       continue;
     }
 
-    ProofEngine engine(theoremSystem);
+    ProofEngine engine(theoremLogic, theoremCalculus);
 
     for (const auto& h : theorem.hypotheses) {
       engine.addHyp(h.name, h.formula);

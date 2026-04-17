@@ -203,14 +203,8 @@ void DocumentCodec::deserializeDocumentParams(const Json& params, InputDocument&
     InputTheorem theorem;
     const std::string base = "params.document.theorems[" + std::to_string(ti) + "]";
     theorem.name = requireStringField(t, "name", base);
-    theorem.proofSystem = "LL";
-    const Json* proofSystem = t.get("proofSystem");
-    if (proofSystem) {
-      if (!proofSystem->isString()) {
-        throw std::invalid_argument(base + ".proofSystem must be string");
-      }
-      theorem.proofSystem = proofSystem->asString();
-    }
+    theorem.logic = requireStringField(t, "logic", base);
+    theorem.calculus = requireStringField(t, "calculus", base);
 
     const Json* hypotheses = t.get("hypotheses");
     if (!hypotheses || !hypotheses->isArray()) {

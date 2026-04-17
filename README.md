@@ -6,6 +6,23 @@ Manual build instructions for the current architecture:
 - `lsp_server/` = Node Language Server
 - `kernel/` = C++ prover kernel
 
+## Proof Profile Syntax
+
+Theorem headers now support selecting logic and deduction calculus independently:
+
+```text
+theorem <Name> using <LOGIC> in <CALCULUS>
+```
+
+Examples:
+
+- `theorem T using IPC in ND`
+- `theorem T using CPC in GENTZEN`
+- `theorem T using CPC in HILBERT`
+- `theorem T using CPC in FREGE`
+
+Single-token forms (`LL`, `IPC`, `CPC`, `STLC`, `ND`, `GENTZEN`, `HILBERT`, `FREGE`) map via enum defaults.
+
 ## 1) Build C++ kernel
 
 From repo root:

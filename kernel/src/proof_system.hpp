@@ -23,25 +23,61 @@ enum class RuleId {
   Translate,
 };
 
-enum class ProofSystemId {
+enum class LogicId {
   LinearLogic,
   IntuitionisticPropositionalLogic,
   ClassicalPropositionalLogic,
   SimplyTypedLambdaCalculus,
 };
 
-struct ProofSystemSpec {
-  ProofSystemId id;
+enum class CalculusId {
+  NaturalDeduction,
+  GentzenSequent,
+  Hilbert,
+  Frege,
+};
+
+enum class ProofChildrenContainerId {
+  SubproofChildren,
+  ReferencedLineChildren,
+};
+
+struct LogicSpec {
+  LogicId id;
   std::string canonicalName;
+};
+
+struct CalculusSpec {
+  CalculusId id;
+  std::string canonicalName;
+};
+
+struct ProofValidatorSpec {
+  LogicId logic;
+  CalculusId calculus;
+  std::string canonicalName;
+  ProofChildrenContainerId childrenContainer;
   std::unordered_set<RuleId> rules;
 };
 
-ProofSystemId parseProofSystemId(const std::string& text);
-const std::string& proofSystemDisplayName(ProofSystemId id);
-const ProofSystemSpec& lookupProofSystem(ProofSystemId id);
-bool isRuleAllowed(ProofSystemId systemId, RuleId ruleId);
+LogicId parseLogicId(const std::string& text);
+CalculusId parseCalculusId(const std::string& text);
 
-bool canTranslateProof(ProofSystemId from, ProofSystemId to);
+const std::string& logicDisplayName(LogicId id);
+const std::string& calculusDisplayName(CalculusId id);
+const std::string& proofChildrenContainerDisplayName(ProofChildrenContainerId id);
+std::string proofProfileDisplayName(LogicId logic, CalculusId calculus);
+
+const LogicSpec& lookupLogic(LogicId id);
+const CalculusSpec& lookupCalculus(CalculusId id);
+const ProofValidatorSpec& lookupProofProfile(LogicId logic, CalculusId calculus);
+CalculusId defaultCalculusForLogic(LogicId logic);
+LogicId defaultLogicForCalculus(CalculusId calculus);
+bool isRuleAllowed(LogicId logicId, CalculusId calculusId, RuleId ruleId);
+
+bool canTranslateProof(LogicId fromLogic, CalculusId fromCalculus, LogicId toLogic, CalculusId toCalculus);
 std::shared_ptr<Formula> translateFormula(const std::shared_ptr<Formula>& formula,
-                                          ProofSystemId from,
-                                          ProofSystemId to);
+                                          LogicId fromLogic,
+                                          CalculusId fromCalculus,
+                                          LogicId toLogic,
+                                          CalculusId toCalculus);
