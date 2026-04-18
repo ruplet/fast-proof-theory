@@ -1,4 +1,4 @@
-import Lean4TPIL.IntuitionisticSequentCalculusLJ
+import FastProofTheory.ProofSystems.IntuitionisticSequentCalculusLJ
 import Lean.Elab.Tactic
 
 open Lean PrettyPrinter Delaborator SubExpr Elab Tactic

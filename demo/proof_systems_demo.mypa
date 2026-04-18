@@ -1,15 +1,15 @@
-def ll_tensor_intro using LL in GENTZEN : a ⊸ b ⊸ (a ⊗ b) := by
+def ll_tensor_intro using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
 rlolli ha
 rlolli hb
 rtensor ha
 ax ha
 ax hb
 
-theorem ipc_identity using IPC in ND : a -> a := by
+theorem ipc_identity using IPC in ND with IPC_IMP : a -> a := by
 intro h
 assumption h
 
-theorem ipc_or_comm using IPC in ND : (p ∨ q) -> (q ∨ p) := by
+theorem ipc_or_comm using IPC in ND with IPC_FULL : (p ∨ q) -> (q ∨ p) := by
 intro h
 cases at h as hp hq
 right
@@ -17,11 +17,11 @@ assumption hp
 left
 assumption hq
 
-theorem cpc_identity using CPC in ND : a -> a := by
+theorem cpc_identity using CPC in ND with CPC_FULL : a -> a := by
 intro h
 assumption h
 
-theorem cpc_double_negation using CPC in ND : ((a -> ⊥) -> ⊥) -> a := by
+theorem cpc_double_negation using CPC in ND with CPC_FULL : ((a -> ⊥) -> ⊥) -> a := by
 intro h
 by_contra na
 apply h

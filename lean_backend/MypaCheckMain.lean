@@ -1,4 +1,4 @@
-import FastProofTheory
+import FastProofTheoryBackend
 
 open FastProofTheory.Server
 

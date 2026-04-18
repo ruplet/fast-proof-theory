@@ -6,7 +6,7 @@
 --     (fun hq : q =>
 --       show q ∨ p from Or.intro_left p hq)
 
-theorem or_comm_from_lean using IPC in ND : (p ∨ q) -> (q ∨ p) := by
+theorem or_comm_from_lean using IPC in ND with IPC_FULL : (p ∨ q) -> (q ∨ p) := by
 intro h
 cases at h as hp hq
 right

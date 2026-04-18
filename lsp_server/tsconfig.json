@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2020"],
     "rootDir": "src",
-    "outDir": "out",
+    "outDir": "../build/lsp_server",
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,

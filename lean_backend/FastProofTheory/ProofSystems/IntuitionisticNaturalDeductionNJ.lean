@@ -1,4 +1,4 @@
-import Lean4TPIL.Rules
+import FastProofTheory.ProofSystems.Rules
 
 namespace NJ
 

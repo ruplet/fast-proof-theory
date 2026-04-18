@@ -162,21 +162,6 @@ def renderKernelError : KernelError → String
   | .invalidSplit _ _ _ => "The resource split is invalid for the current linear context."
   | .malformedCertificate detail => s!"Malformed certificate: {detail}"
 
-private def formulaAllowed (profile : Profile) : Formula → Bool
-  | .bang _ => profile.allowsExponentials
-  | .whyNot _ => profile.allowsExponentials
-  | .tensor a b => formulaAllowed profile a && formulaAllowed profile b
-  | .par a b => formulaAllowed profile a && formulaAllowed profile b
-  | .with a b => formulaAllowed profile a && formulaAllowed profile b
-  | .plus a b => formulaAllowed profile a && formulaAllowed profile b
-  | .lolli a b => formulaAllowed profile a && formulaAllowed profile b
-  | .imp a b => formulaAllowed profile a && formulaAllowed profile b
-  | .and a b => formulaAllowed profile a && formulaAllowed profile b
-  | .or a b => formulaAllowed profile a && formulaAllowed profile b
-  | .all _ a => formulaAllowed profile a
-  | .ex _ a => formulaAllowed profile a
-  | _ => true
-
 private def ensureRuleAllowed (rule : RuleKind) : CheckM Unit := do
   let profile <- read
   unless profile.allowsRule rule do
@@ -184,7 +169,7 @@ private def ensureRuleAllowed (rule : RuleKind) : CheckM Unit := do
 
 private def ensureFormulaAllowed (formula : Formula) : CheckM Unit := do
   let profile <- read
-  unless formulaAllowed profile formula do
+  unless profile.allowsFormula formula do
     throw (.unsupportedFormula profile.displayName formula)
 
 private def ensureGoalSupported (goal : Goal) : CheckM Unit := do

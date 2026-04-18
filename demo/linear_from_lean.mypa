@@ -2,14 +2,14 @@
 -- Active theorems below are in the currently checked MyPA fragment.
 -- The commented declarations are the remaining Lean examples, pending more sequent rules.
 
-def tensor_right_from_lean using LL in GENTZEN : a ⊸ b ⊸ (a ⊗ b) := by
+def tensor_right_from_lean using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
 rlolli ha
 rlolli hb
 rtensor ha
 ax ha
 ax hb
 
-def tensor_nested_from_lean using LL in GENTZEN : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
+def tensor_nested_from_lean using LL in GENTZEN with LL : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
 rlolli ha
 rlolli hb
 rlolli hc
@@ -19,7 +19,7 @@ rtensor hb
 ax hb
 ax hc
 
-def tensorPlusDistrib using LL in GENTZEN : ((a ⊗ (b ⊕ c)) ⊸ ((a ⊗ b) ⊕ (a ⊗ c))) & (((a ⊗ b) ⊕ (a ⊗ c)) ⊸ (a ⊗ (b ⊕ c))) := by
+def tensorPlusDistrib using LL in GENTZEN with LL : ((a ⊗ (b ⊕ c)) ⊸ ((a ⊗ b) ⊕ (a ⊗ c))) & (((a ⊗ b) ⊕ (a ⊗ c)) ⊸ (a ⊗ (b ⊕ c))) := by
 rwith
 rlolli h
 ltensor at h as ha hbc
@@ -45,7 +45,7 @@ ax ha
 rplusr
 ax hc
 
-def plusTensorDistrib using LL in GENTZEN : (((a ⊕ b) ⊗ c) ⊸ ((a ⊗ c) ⊕ (b ⊗ c))) & (((a ⊗ c) ⊕ (b ⊗ c)) ⊸ ((a ⊕ b) ⊗ c)) := by
+def plusTensorDistrib using LL in GENTZEN with LL : (((a ⊕ b) ⊗ c) ⊸ ((a ⊗ c) ⊕ (b ⊗ c))) & (((a ⊗ c) ⊕ (b ⊗ c)) ⊸ ((a ⊕ b) ⊗ c)) := by
 rwith
 rlolli h
 ltensor at h as hab hc
@@ -71,7 +71,7 @@ rplusr
 ax hb
 ax hc
 
-def linearImpWithDistrib using LL in GENTZEN : ((a ⊸ (b & c)) ⊸ ((a ⊸ b) & (a ⊸ c))) & (((a ⊸ b) & (a ⊸ c)) ⊸ (a ⊸ (b & c))) := by
+def linearImpWithDistrib using LL in GENTZEN with LL : ((a ⊸ (b & c)) ⊸ ((a ⊸ b) & (a ⊸ c))) & (((a ⊸ b) & (a ⊸ c)) ⊸ (a ⊸ (b & c))) := by
 rwith
 rlolli h
 rwith
@@ -97,7 +97,7 @@ llolli at hac using ha as hc
 ax ha
 ax hc
 
-def plusLinearImpDistrib using LL in GENTZEN : (((a ⊕ b) ⊸ c) ⊸ ((a ⊸ c) & (b ⊸ c))) & (((a ⊸ c) & (b ⊸ c)) ⊸ ((a ⊕ b) ⊸ c)) := by
+def plusLinearImpDistrib using LL in GENTZEN with LL : (((a ⊕ b) ⊸ c) ⊸ ((a ⊸ c) & (b ⊸ c))) & (((a ⊸ c) & (b ⊸ c)) ⊸ ((a ⊕ b) ⊸ c)) := by
 rwith
 rlolli h
 rwith
@@ -123,7 +123,7 @@ llolli at hbc using hb as hc
 ax hb
 ax hc
 
-def bangWithDistrib using LL! in GENTZEN : (!(a & b) ⊸ (!a ⊗ !b)) & ((!a ⊗ !b) ⊸ !(a & b)) := by
+def bangWithDistrib using LL! in GENTZEN with LL! : (!(a & b) ⊸ (!a ⊗ !b)) & ((!a ⊗ !b) ⊸ !(a & b)) := by
 rwith
 rlolli h
 lbang at h

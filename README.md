@@ -34,9 +34,9 @@ theorem <Name> using <PROFILE>
 
 Examples:
 
-- `theorem T using LL`
-- `theorem T using LL!`
-- `theorem T using LL EXP`
+- `theorem T using LL in GENTZEN with LL`
+- `theorem T using LL! in GENTZEN with LL!`
+- `theorem T using LL! in GENTZEN with LL!`
 
 ## 1) Build Lean backend
 
@@ -61,7 +61,7 @@ cd ..
 
 Expected artifact:
 
-- `lsp_server/out/server.js`
+- `build/lsp_server/server.js`
 
 ## 3) Install and build VSCode extension client
 
@@ -74,7 +74,7 @@ cd ..
 
 Expected artifact:
 
-- `client/out/extension.js`
+- `build/client/extension.js`
 
 ## 4) Run in VSCode (development mode)
 
@@ -98,8 +98,8 @@ In that window:
 
 Optional overrides:
 
-- VSCode setting `mypa.lspServerPath`: path to `server.js` (default resolves to `../lsp_server/out/server.js` from `client/`).
-- Env var `PROVER_KERNEL_PATH`: path to Lean backend binary (default resolves to `../.lake/build/bin/mypa-lean-kernel` from `lsp_server/out/`).
+- VSCode setting `mypa.lspServerPath`: path to `server.js` (default resolves to `../build/lsp_server/server.js` from `client/`).
+- Env var `PROVER_KERNEL_PATH`: path to Lean backend binary (default resolves to `../.lake/build/bin/mypa-lean-kernel` from `build/lsp_server/`).
 
 If `code` CLI is unavailable:
 
@@ -113,7 +113,7 @@ Lean backend directly:
 
 ```bash
 cat <<'EOF' | ./.lake/build/bin/mypa-lean-kernel
-{"jsonrpc":"2.0","id":"smoke","method":"checkDocument","params":{"uri":"file:///demo/test.mypa","version":1,"text":"theorem Demo using LL\nhyp h1 : A\ngoal A\naxiom\nend\n","cursor":{"line":3,"character":0}}}
+{"jsonrpc":"2.0","id":"smoke","method":"checkDocument","params":{"uri":"file:///demo/test.mypa","version":1,"text":"theorem Demo using LL in GENTZEN with LL\nhyp h1 : A\ngoal A\naxiom\nend\n","cursor":{"line":3,"character":0}}}
 EOF
 ```
 
@@ -145,3 +145,8 @@ Also note: the LSP `mypa/goals` path now surfaces kernel diagnostics as syntheti
 ## Notes
 
 If `npm install` fails due to network restrictions, rerun once registry access is available.
+
+## TODO
+
+- Formalize proper Heyting algebra semantics for IPC using Mathlib's `Mathlib.Order.Heyting.Basic`.
+- Prove soundness and completeness of propositional IPC with respect to that semantics.

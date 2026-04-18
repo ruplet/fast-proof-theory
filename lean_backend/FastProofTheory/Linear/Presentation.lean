@@ -1,4 +1,5 @@
 import FastProofTheory.Linear.Engine
+import FastProofTheory.Linear.Export
 import FastProofTheory.Server.Protocol
 
 namespace FastProofTheory.Linear
@@ -28,16 +29,26 @@ def renderDisplay (snapshot : Snapshot) (state : EngineState) : ProofDisplay :=
         sections := []
       }
   | some thm =>
-      let profileLabel := thm.profile?.map (·.displayName) |>.getD thm.profileText
-      let calculusLabel := thm.profile?.map (·.calculusName) |>.getD "Natural Deduction"
+      let rulesLabel := thm.profile?.map (·.logicName) |>.getD thm.profileText
+      let calculusLabel := thm.profile?.map (·.calculusName) |>.getD ""
+      let languageLabel := thm.profile?.map (·.languageName) |>.getD ""
+      let exportSection :=
+        if state.verified then
+          match Export.exportIPCTheorem? thm with
+          | some source =>
+              [{ title := "Lean Export", body := source.splitOn "\n" }]
+          | none => []
+        else
+          []
       {
         title := thm.name
         status := state.status
         sections := [
-          { title := "Profile", body := [profileLabel] },
+          { title := "Rules", body := [rulesLabel] },
           { title := "Calculus", body := [calculusLabel] },
+          { title := "Language", body := [languageLabel] },
           { title := "Goals", body := if state.goals.isEmpty then ["No open goals."] else state.goals.map (·.target) }
-        ]
+        ] ++ exportSection
       }
 
 end FastProofTheory.Linear

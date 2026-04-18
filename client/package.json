@@ -39,7 +39,7 @@
         "mypa.lspServerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the MyPA LSP server entrypoint (server.js). Leave empty to use ../lsp_server/out/server.js relative to the extension."
+          "description": "Path to the MyPA LSP server entrypoint (server.js). Leave empty to use ../build/lsp_server/server.js relative to the extension."
         }
       }
     },
@@ -52,7 +52,8 @@
   "scripts": {
     "compile": "tsc -p .",
     "watch": "tsc -p . -w",
-    "vscode:prepublish": "npm run compile && npm --prefix ../lsp_server run compile"
+    "build:kernel": "cd .. && lake build mypa-lean-kernel",
+    "vscode:prepublish": "npm run build:kernel && npm run compile && npm --prefix ../lsp_server run compile"
   },
   "dependencies": {
     "vscode-languageclient": "^6.1.4"

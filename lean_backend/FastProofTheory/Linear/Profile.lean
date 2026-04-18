@@ -1,4 +1,8 @@
+import FastProofTheory.ProofSystems.Rules
+
 namespace FastProofTheory.Linear
+
+open Rules
 
 inductive RuleKind where
   | assumption
@@ -19,8 +23,9 @@ inductive RuleKind where
   | topIntro
 deriving BEq, DecidableEq, Inhabited, Repr
 
-inductive Logic where
+inductive RuleSet where
   | ll
+  | llBang
   | ipc
   | cpc
 deriving BEq, DecidableEq, Inhabited, Repr
@@ -30,32 +35,95 @@ inductive Calculus where
   | nd
 deriving BEq, DecidableEq, Inhabited, Repr
 
+inductive Language where
+  | ipcImplicational
+  | ipcPropositional
+  | ipcFull
+  | cpcPropositional
+  | cpcFull
+  | ll
+  | llBang
+deriving BEq, DecidableEq, Inhabited, Repr
+
 structure Profile where
-  logic : Logic
+  rules : RuleSet
   calculus : Calculus
-  exponentials : Bool := false
+  language : Language
 deriving BEq, DecidableEq, Inhabited, Repr
 
 def Profile.withoutExponentials : Profile :=
-  { logic := .ll, calculus := .gentzen, exponentials := false }
+  { rules := .ll, calculus := .gentzen, language := .ll }
 
 def Profile.withExponentials : Profile :=
-  { logic := .ll, calculus := .gentzen, exponentials := true }
+  { rules := .llBang, calculus := .gentzen, language := .llBang }
 
-def Profile.ipcND : Profile :=
-  { logic := .ipc, calculus := .nd, exponentials := false }
+def Profile.ipcNDImplicational : Profile :=
+  { rules := .ipc, calculus := .nd, language := .ipcImplicational }
 
-def Profile.cpcND : Profile :=
-  { logic := .cpc, calculus := .nd, exponentials := false }
+def Profile.ipcNDPropositional : Profile :=
+  { rules := .ipc, calculus := .nd, language := .ipcPropositional }
+
+def Profile.ipcNDFull : Profile :=
+  { rules := .ipc, calculus := .nd, language := .ipcFull }
+
+def Profile.cpcNDPropositional : Profile :=
+  { rules := .cpc, calculus := .nd, language := .cpcPropositional }
+
+def Profile.cpcNDFull : Profile :=
+  { rules := .cpc, calculus := .nd, language := .cpcFull }
+
+def Profile.logicName (profile : Profile) : String :=
+  match profile.rules with
+  | .ll => "LL"
+  | .llBang => "LL!"
+  | .ipc => "IPC"
+  | .cpc => "CPC"
+
+def Profile.calculusName (profile : Profile) : String :=
+  match profile.calculus with
+  | .gentzen => "GENTZEN"
+  | .nd => "ND"
+
+def Language.displayName : Language → String
+  | .ipcImplicational => "IPC_IMP"
+  | .ipcPropositional => "IPC_PROP"
+  | .ipcFull => "IPC_FULL"
+  | .cpcPropositional => "CPC_PROP"
+  | .cpcFull => "CPC_FULL"
+  | .ll => "LL"
+  | .llBang => "LL!"
+
+def Profile.languageName (profile : Profile) : String :=
+  profile.language.displayName
+
+def Profile.displayName (profile : Profile) : String :=
+  s!"{profile.logicName} in {profile.calculusName} with {profile.languageName}"
 
 def Profile.allowsExponentials (profile : Profile) : Bool :=
-  profile.logic = .ll && profile.exponentials
+  profile.rules = .llBang
 
 def Profile.isLinearGentzen (profile : Profile) : Bool :=
-  profile.logic = .ll && profile.calculus = .gentzen
+  (profile.rules = .ll || profile.rules = .llBang) && profile.calculus = .gentzen
 
 def Profile.isNaturalDeduction (profile : Profile) : Bool :=
   profile.calculus = .nd
+
+def Profile.isIPC (profile : Profile) : Bool :=
+  profile.rules = .ipc
+
+def Profile.isCPC (profile : Profile) : Bool :=
+  profile.rules = .cpc
+
+def Profile.hasValidConfiguration (profile : Profile) : Bool :=
+  match profile.rules, profile.calculus, profile.language with
+  | .ll, .gentzen, .ll => true
+  | .llBang, .gentzen, .llBang => true
+  | .ipc, .nd, .ipcImplicational => true
+  | .ipc, .nd, .ipcPropositional => true
+  | .ipc, .nd, .ipcFull => true
+  | .cpc, .nd, .cpcPropositional => true
+  | .cpc, .nd, .cpcFull => true
+  | _, _, _ => false
 
 def Profile.allowsRule (profile : Profile) (rule : RuleKind) : Bool :=
   match rule with
@@ -63,32 +131,79 @@ def Profile.allowsRule (profile : Profile) (rule : RuleKind) : Bool :=
   | .bangLeft => profile.allowsExponentials
   | _ => true
 
-def Profile.displayName (profile : Profile) : String :=
-  match profile.logic with
-  | .ll =>
-      if profile.exponentials then "LL!" else "LL"
-  | .ipc => "IPC"
-  | .cpc => "CPC"
-
-def Profile.calculusName (profile : Profile) : String :=
-  match profile.calculus with
-  | .gentzen => "Sequent Calculus"
-  | .nd => "Natural Deduction"
+partial def Profile.allowsFormula (profile : Profile) : Formula → Bool
+  | .atom _ => true
+  | .pred _ _ => false
+  | .imp a b =>
+      match profile.language with
+      | .ipcImplicational | .ipcFull | .cpcFull =>
+          profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .and a b =>
+      match profile.language with
+      | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull =>
+          profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .or a b =>
+      match profile.language with
+      | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull =>
+          profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .bot =>
+      match profile.language with
+      | .ipcImplicational | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull => true
+      | _ => false
+  | .all _ _ => false
+  | .ex _ _ => false
+  | .tensor a b =>
+      match profile.language with
+      | .ll | .llBang => profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .par _ _ => false
+  | .with a b =>
+      match profile.language with
+      | .ll | .llBang => profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .plus a b =>
+      match profile.language with
+      | .ll | .llBang => profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .lolli a b =>
+      match profile.language with
+      | .ll | .llBang => profile.allowsFormula a && profile.allowsFormula b
+      | _ => false
+  | .bang a =>
+      match profile.language with
+      | .llBang => profile.allowsFormula a
+      | _ => false
+  | .whyNot _ => false
+  | .one =>
+      match profile.language with
+      | .ll | .llBang => true
+      | _ => false
+  | .zero =>
+      match profile.language with
+      | .ll | .llBang => true
+      | _ => false
+  | .top =>
+      match profile.language with
+      | .ll | .llBang => true
+      | _ => false
+  | .bottom =>
+      match profile.language with
+      | .ll | .llBang => true
+      | _ => false
 
 def parseSupportedProfileTokens? (tokens : List String) : Option Profile :=
   match tokens.map String.toUpper with
-  | "LL" :: [] => some .withoutExponentials
-  | "LL" :: "IN" :: "GENTZEN" :: [] => some .withoutExponentials
-  | "LL!" :: [] => some .withExponentials
-  | "LL!" :: "IN" :: "GENTZEN" :: [] => some .withExponentials
-  | "LL" :: "EXP" :: [] => some .withExponentials
-  | "LL" :: "BANG" :: [] => some .withExponentials
-  | "LL" :: "EXP" :: "IN" :: "GENTZEN" :: [] => some .withExponentials
-  | "LL" :: "BANG" :: "IN" :: "GENTZEN" :: [] => some .withExponentials
-  | "IPC" :: "IN" :: "ND" :: [] => some .ipcND
-  | "IPC" :: "ND" :: [] => some .ipcND
-  | "CPC" :: "IN" :: "ND" :: [] => some .cpcND
-  | "CPC" :: "ND" :: [] => some .cpcND
+  | "LL" :: "IN" :: "GENTZEN" :: "WITH" :: "LL" :: [] => some .withoutExponentials
+  | "LL!" :: "IN" :: "GENTZEN" :: "WITH" :: "LL!" :: [] => some .withExponentials
+  | "LL_BANG" :: "IN" :: "GENTZEN" :: "WITH" :: "LL_BANG" :: [] => some .withExponentials
+  | "IPC" :: "IN" :: "ND" :: "WITH" :: "IPC_IMP" :: [] => some .ipcNDImplicational
+  | "IPC" :: "IN" :: "ND" :: "WITH" :: "IPC_PROP" :: [] => some .ipcNDPropositional
+  | "IPC" :: "IN" :: "ND" :: "WITH" :: "IPC_FULL" :: [] => some .ipcNDFull
+  | "CPC" :: "IN" :: "ND" :: "WITH" :: "CPC_PROP" :: [] => some .cpcNDPropositional
+  | "CPC" :: "IN" :: "ND" :: "WITH" :: "CPC_FULL" :: [] => some .cpcNDFull
   | _ => none
 
 def parseProfileTokens (tokens : List String) : Profile :=

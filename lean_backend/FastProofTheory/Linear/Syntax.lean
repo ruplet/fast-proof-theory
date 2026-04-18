@@ -5,6 +5,22 @@ namespace FastProofTheory.Linear.Syntax
 
 open Rules
 
+inductive SurfaceFormula where
+  | atom (name : String)
+  | tensor (left right : SurfaceFormula)
+  | with (left right : SurfaceFormula)
+  | plus (left right : SurfaceFormula)
+  | lolli (left right : SurfaceFormula)
+  | bang (body : SurfaceFormula)
+  | one
+  | top
+  | zero
+  | bottom
+  | imp (left right : SurfaceFormula)
+  | and (left right : SurfaceFormula)
+  | or (left right : SurfaceFormula)
+deriving Inhabited, Repr
+
 inductive Token where
   | ident (text : String)
   | lparen
@@ -148,7 +164,7 @@ partial def tokenizeChars : List Char → Except String (List Token)
 def tokenize (text : String) : Except String (List Token) :=
   tokenizeChars text.toList
 
-abbrev Parser := List Token → Except String (Formula × List Token)
+abbrev Parser := List Token → Except String (SurfaceFormula × List Token)
 
 mutual
   partial def parseArrow : Parser := fun tokens => do
@@ -166,7 +182,7 @@ mutual
     let (first, rest) <- parseOrLike tokens
     parseAndLikeTail first rest
 
-  partial def parseAndLikeTail (acc : Formula) : Parser := fun tokens =>
+  partial def parseAndLikeTail (acc : SurfaceFormula) : Parser := fun tokens =>
     match tokens with
     | Token.with :: tail => do
         let (rhs, rest) <- parseOrLike tail
@@ -180,7 +196,7 @@ mutual
     let (first, rest) <- parseTensor tokens
     parseOrLikeTail first rest
 
-  partial def parseOrLikeTail (acc : Formula) : Parser := fun tokens =>
+  partial def parseOrLikeTail (acc : SurfaceFormula) : Parser := fun tokens =>
     match tokens with
     | Token.plus :: tail => do
         let (rhs, rest) <- parseTensor tail
@@ -194,7 +210,7 @@ mutual
     let (first, rest) <- parseUnary tokens
     parseTensorTail first rest
 
-  partial def parseTensorTail (acc : Formula) : Parser := fun tokens =>
+  partial def parseTensorTail (acc : SurfaceFormula) : Parser := fun tokens =>
     match tokens with
     | Token.tensor :: tail => do
         let (rhs, rest) <- parseUnary tail
@@ -220,15 +236,143 @@ mutual
         match rest with
         | Token.rparen :: final => pure (inner, final)
         | _ => .error "Expected `)`."
-    | _ => .error "Expected a linear formula."
+    | _ => .error "Expected a formula."
 end
 
-def parseFormula (text : String) : Except String Formula := do
+def parseSurfaceFormula (text : String) : Except String SurfaceFormula := do
   let tokens <- tokenize text
   let (formula, rest) <- parseArrow tokens
   match rest with
   | [] => pure formula
   | _ => .error "Unexpected trailing tokens in formula."
+
+mutual
+  private def termEq : Rules.Term → Rules.Term → Bool
+    | .var x, .var y => x = y
+    | .fn f xs, .fn g ys => f = g && listTermEq xs ys
+    | _, _ => false
+
+  private def listTermEq : List Rules.Term → List Rules.Term → Bool
+    | [], [] => true
+    | x :: xs, y :: ys => termEq x y && listTermEq xs ys
+    | _, _ => false
+end
+
+partial def formulaEq : Formula → Formula → Bool
+  | .atom a, .atom b => a = b
+  | .pred p xs, .pred q ys => p = q && listTermEq xs ys
+  | .imp a₁ b₁, .imp a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .and a₁ b₁, .and a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .or a₁ b₁, .or a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .bot, .bot => true
+  | .all x a, .all y b => x = y && formulaEq a b
+  | .ex x a, .ex y b => x = y && formulaEq a b
+  | .tensor a₁ b₁, .tensor a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .par a₁ b₁, .par a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .with a₁ b₁, .with a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .plus a₁ b₁, .plus a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .lolli a₁ b₁, .lolli a₂ b₂ => formulaEq a₁ a₂ && formulaEq b₁ b₂
+  | .bang a, .bang b => formulaEq a b
+  | .whyNot a, .whyNot b => formulaEq a b
+  | .one, .one => true
+  | .zero, .zero => true
+  | .top, .top => true
+  | .bottom, .bottom => true
+  | _, _ => false
+
+private def connectiveNotAllowed (profile : Profile) (name : String) : Except String α :=
+  .error s!"Connective `{name}` is not available in {profile.displayName}."
+
+partial def elaborateFormula (profile : Profile) : SurfaceFormula → Except String Formula
+  | .atom name => pure (.atom name)
+  | .tensor a b =>
+      match profile.language with
+      | .ll | .llBang =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.tensor left right)
+      | _ => connectiveNotAllowed profile "⊗"
+  | .with a b =>
+      match profile.language with
+      | .ll | .llBang =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.with left right)
+      | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull =>
+          connectiveNotAllowed profile "& (use ∧ in ND profiles)"
+      | _ => connectiveNotAllowed profile "&"
+  | .plus a b =>
+      match profile.language with
+      | .ll | .llBang =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.plus left right)
+      | _ => connectiveNotAllowed profile "⊕"
+  | .lolli a b =>
+      match profile.language with
+      | .ll | .llBang =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.lolli left right)
+      | _ => connectiveNotAllowed profile "⊸"
+  | .bang a =>
+      match profile.language with
+      | .llBang =>
+          do
+            let body <- elaborateFormula profile a
+            pure (.bang body)
+      | _ => connectiveNotAllowed profile "!"
+  | .one =>
+      match profile.language with
+      | .ll | .llBang => pure .one
+      | _ => connectiveNotAllowed profile "1"
+  | .top =>
+      match profile.language with
+      | .ll | .llBang => pure .top
+      | _ => connectiveNotAllowed profile "⊤"
+  | .zero =>
+      match profile.language with
+      | .ll | .llBang => pure .zero
+      | _ => connectiveNotAllowed profile "0"
+  | .bottom =>
+      match profile.language with
+      | .ll | .llBang => pure .bottom
+      | .ipcImplicational | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull => pure .bot
+  | .imp a b =>
+      match profile.language with
+      | .ipcImplicational | .ipcFull | .cpcFull =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.imp left right)
+      | _ => connectiveNotAllowed profile "→"
+  | .and a b =>
+      match profile.language with
+      | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.and left right)
+      | _ => connectiveNotAllowed profile "∧"
+  | .or a b =>
+      match profile.language with
+      | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull =>
+          do
+            let left <- elaborateFormula profile a
+            let right <- elaborateFormula profile b
+            pure (.or left right)
+      | _ => connectiveNotAllowed profile "∨"
+
+def parseFormula (profile : Profile) (text : String) : Except String Formula := do
+  let surface <- parseSurfaceFormula text
+  let formula <- elaborateFormula profile surface
+  unless profile.allowsFormula formula do
+    throw s!"Formula is not in the language of {profile.displayName}."
+  pure formula
 
 private def takeBalanced (openCh closeCh : Char) (chars : List Char) :
     Except String (String × List Char) :=
@@ -260,7 +404,7 @@ private def trimChars (chars : List Char) : List Char :=
 private def trimString (text : String) : String :=
   String.ofList (trimChars text.toList)
 
-private def parseEquivalentTail (text : String) : Except String Formula := do
+private def parseEquivalentTail (profile : Profile) (text : String) : Except String Formula := do
   let chars := trimString text |>.toList
   let (lhsText, afterLhs) <- takeBalanced '(' ')' chars
   let afterLhsTrimmed := trimChars afterLhs
@@ -268,58 +412,16 @@ private def parseEquivalentTail (text : String) : Except String Formula := do
   let trailing := trimString (String.ofList afterRhs)
   unless trailing.isEmpty do
     throw s!"Unexpected trailing text after Equivalent statement: `{trailing}`."
-  let lhs <- parseFormula lhsText
-  let rhs <- parseFormula rhsText
+  let lhs <- parseFormula profile lhsText
+  let rhs <- parseFormula profile rhsText
   pure (.with (.lolli lhs rhs) (.lolli rhs lhs))
 
-partial def containsBang : Formula → Bool
-  | .bang _ => true
-  | .tensor a b => containsBang a || containsBang b
-  | .with a b => containsBang a || containsBang b
-  | .plus a b => containsBang a || containsBang b
-  | .lolli a b => containsBang a || containsBang b
-  | .par a b => containsBang a || containsBang b
-  | .imp a b => containsBang a || containsBang b
-  | .and a b => containsBang a || containsBang b
-  | .or a b => containsBang a || containsBang b
-  | .all _ a => containsBang a
-  | .ex _ a => containsBang a
-  | .whyNot a => containsBang a
-  | _ => false
-
-partial def containsLinearConnective : Formula → Bool
-  | .tensor a b => containsLinearConnective a || containsLinearConnective b || true
-  | .with a b => containsLinearConnective a || containsLinearConnective b || true
-  | .plus a b => containsLinearConnective a || containsLinearConnective b || true
-  | .lolli a b => containsLinearConnective a || containsLinearConnective b || true
-  | .par a b => containsLinearConnective a || containsLinearConnective b || true
-  | .bang a => containsLinearConnective a || true
-  | .whyNot a => containsLinearConnective a || true
-  | .one => true
-  | .zero => true
-  | .top => true
-  | .bottom => true
-  | .imp a b => containsLinearConnective a || containsLinearConnective b
-  | .and a b => containsLinearConnective a || containsLinearConnective b
-  | .or a b => containsLinearConnective a || containsLinearConnective b
-  | .all _ a => containsLinearConnective a
-  | .ex _ a => containsLinearConnective a
-  | _ => false
-
-def inferProfileForFormula (formula : Formula) : FastProofTheory.Linear.Profile :=
-  if containsBang formula then
-    .withExponentials
-  else if containsLinearConnective formula then
-    .withoutExponentials
-  else
-    .ipcND
-
-def parseTheoremStatement (text : String) : Except String Formula := do
+def parseTheoremStatement (profile : Profile) (text : String) : Except String Formula := do
   let trimmed := trimString text
   if trimmed.startsWith "Equivalent" then
-    parseEquivalentTail (trimString (String.ofList (trimmed.toList.drop "Equivalent".length)))
+    parseEquivalentTail profile (trimString (String.ofList (trimmed.toList.drop "Equivalent".length)))
   else
-    parseFormula trimmed
+    parseFormula profile trimmed
 
 partial def renderFormula : Formula → String
   | .atom name => name

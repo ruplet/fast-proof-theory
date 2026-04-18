@@ -188,9 +188,6 @@ private def stripBySuffix (text : String) : String :=
   else
     trimmed
 
-private def inferProfileText (profile : Profile) : String :=
-  profile.displayName
-
 private def isGentzenProfileText (text : String) : Bool :=
   let upper := text.toUpper
   upper.contains "GENTZEN"
@@ -203,9 +200,9 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
     else
       match splitWords trimmed with
       | "theorem" :: [] =>
-          some ("theorem", "LL", some .withoutExponentials, none, some "Theorem statement must be written explicitly in the header.")
+          some ("theorem", "", none, none, some "Theorem statement must be written explicitly in the header.")
       | "theorem" :: name :: [] =>
-          some (name, "LL", some .withoutExponentials, none, some "Theorem statement must be written explicitly in the header.")
+          some (name, "", none, none, some "Theorem statement must be written explicitly in the header.")
       | "theorem" :: name :: "using" :: profileTokens =>
           some (name, String.intercalate " " profileTokens, parseSupportedProfileTokens? profileTokens, none, some "Theorem statement must be written explicitly in the header.")
       | _ => none
@@ -227,7 +224,7 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
           | name :: _ =>
               let afterName := trimLine (dropPrefix restAfterKeyword name.length)
               if afterName.startsWith "{" || afterName.startsWith "(" then
-                some (name, "LL", some Profile.withoutExponentials, none, some "Theorem binders are not supported yet. Write all arguments explicitly in the theorem statement.")
+                some (name, "", none, none, some "Theorem binders are not supported yet. Write all arguments explicitly in the theorem statement.")
               else
                 match splitAtTopLevelColon afterName with
               | none => none
@@ -240,24 +237,14 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
                         (txt, parseSupportedProfileTokens? tokens)
                     | _ => ("", none)
                   let statementText := stripBySuffix afterColon
-                  match parseTheoremStatement statementText with
-                  | Except.ok formula =>
-                      let finalProfile := profile?.orElse (fun _ => some (inferProfileForFormula formula))
-                      let finalText := if profileText.isEmpty then inferProfileText finalProfile.get! else profileText
-                      let headerError? :=
-                        if profileText.isEmpty then
-                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN` or `using IPC in ND`."
-                        else
-                          none
-                      some (name, finalText, finalProfile, some statementText, headerError?)
-                  | Except.error _ =>
-                      let fallbackText := if profileText.isEmpty then "LL" else profileText
-                      let headerError? :=
-                        if profileText.isEmpty then
-                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN` or `using IPC in ND`."
-                        else
-                          none
-                      some (name, fallbackText, profile?.orElse (fun _ => some Profile.withoutExponentials), some statementText, headerError?)
+                  let headerError? :=
+                    if profileText.isEmpty then
+                      some "Declare the full logic explicitly, for example `using IPC in ND with IPC_FULL` or `using LL in GENTZEN with LL`."
+                    else if profile?.isNone then
+                      some "Unsupported logic specification. Use one of: `LL in GENTZEN with LL`, `LL! in GENTZEN with LL!`, `IPC in ND with IPC_IMP|IPC_PROP|IPC_FULL`, or `CPC in ND with CPC_PROP|CPC_FULL`."
+                    else
+                      none
+                  some (name, profileText, profile?, some statementText, headerError?)
 
 def tacticDecl? (line : String) : Option String :=
   let trimmed := trimLine line
@@ -417,7 +404,7 @@ def snapshotAtCursor (text : String) (cursorLine cursorCharacter : Nat) : Snapsh
     | none => none
   { theorem?, sourceLines }
 
-private def parseHypothesisLine (entry : NumberedText) : Except EngineError NamedHyp := do
+private def parseHypothesisLine (profile : Profile) (entry : NumberedText) : Except EngineError NamedHyp := do
   let trimmed := trimLine entry.text
   let after := trimLine (String.ofList (trimmed.toList.drop 3))
   let parts := after.splitOn ":"
@@ -425,7 +412,7 @@ private def parseHypothesisLine (entry : NumberedText) : Except EngineError Name
   | [lhs, rhs] =>
       let name := trimLine lhs
       let formulaText := trimLine rhs
-      match parseFormula formulaText with
+      match parseFormula profile formulaText with
       | .ok formula => pure { name, formula, sourceLine := entry.line }
       | .error err =>
           throw {
@@ -442,10 +429,10 @@ private def parseHypothesisLine (entry : NumberedText) : Except EngineError Name
         message := "Hypothesis must have the form `hyp <name> : <formula>`."
       }
 
-private def parseGoalLine (entry : NumberedText) : Except EngineError Formula := do
+private def parseGoalLine (profile : Profile) (entry : NumberedText) : Except EngineError Formula := do
   let trimmed := trimLine entry.text
   let formulaText := trimLine (String.ofList (trimmed.toList.drop 4))
-  match parseFormula formulaText with
+  match parseFormula profile formulaText with
   | .ok formula => pure formula
   | .error err =>
       throw {
@@ -455,8 +442,8 @@ private def parseGoalLine (entry : NumberedText) : Except EngineError Formula :=
         message := s!"Invalid goal formula `{formulaText}`: {err}"
       }
 
-private def parseStatementGoal (entry : NumberedText) : Except EngineError Formula := do
-  match parseTheoremStatement entry.text with
+private def parseStatementGoal (profile : Profile) (entry : NumberedText) : Except EngineError Formula := do
+  match parseTheoremStatement profile entry.text with
   | Except.ok formula => pure formula
   | Except.error err =>
       throw {
@@ -535,7 +522,7 @@ private def lookupGoalHyp
       | none => none
 
 private def formulaMatches (a b : Formula) : Bool :=
-  renderFormula a = renderFormula b
+  formulaEq a b
 
 private def parseAtClause
     (tactic : ParsedTactic) :
@@ -1472,15 +1459,6 @@ private def ndGoalToView (goal : NDGoalState) : EngineGoal :=
     target := renderFormula goal.target
   }
 
-private partial def ndFormulaAllowed : Formula → Bool
-  | .atom _ => true
-  | .imp a b => ndFormulaAllowed a && ndFormulaAllowed b
-  | .and a b => ndFormulaAllowed a && ndFormulaAllowed b
-  | .or a b => ndFormulaAllowed a && ndFormulaAllowed b
-  | .bot => true
-  | .bottom => true
-  | _ => false
-
 private def parseCasesAsTwo (tactic : ParsedTactic) : Except EngineError (String × String × String) := do
   match tactic.args with
   | "at" :: hypName :: "as" :: leftName :: rightName :: _ =>
@@ -1716,7 +1694,7 @@ private def ndAbsurdCloses (goal : NDGoalState) (tactic : ParsedTactic) :
 
 private def ndByContraGoal (profile : Profile) (goal : NDGoalState) (tactic : ParsedTactic) :
     Except EngineError NDGoalState := do
-  unless profile.logic = .cpc do
+  unless profile.isCPC do
     throw {
       line := tactic.sourceLine
       severity := 1
@@ -1813,22 +1791,22 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
             line := thm.firstLine
             severity := 1
             code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-            message := s!"Profile `{thm.profileText}` is not supported by the checked ND engine."
+            message := "Every theorem must declare a complete supported logic specification."
           }
           return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
       | some profile =>
-          if !(profile.isNaturalDeduction && (profile.logic = .ipc || profile.logic = .cpc)) then
+          if !(profile.isNaturalDeduction && (profile.isIPC || profile.isCPC) && profile.hasValidConfiguration) then
             let err := {
               line := thm.firstLine
               severity := 1
               code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-              message := "Only `IPC in ND` and `CPC in ND` are supported by the checked ND engine."
+              message := "Only supported ND logic specifications are accepted by the checked ND engine."
             }
             ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
           else
             let goalEntries := thm.statement?.map List.singleton |>.getD []
             let goalsE := goalEntries.map (fun entry =>
-              match parseStatementGoal entry with
+              match parseStatementGoal profile entry with
               | Except.ok f => Except.ok (entry.line, f)
               | Except.error e => Except.error e)
             let tactics := thm.tactics.map parseTacticLine
@@ -1837,13 +1815,13 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                 ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
             | none =>
                 let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
-                match goals.find? (fun (_, target) => !ndFormulaAllowed target) with
+                match goals.find? (fun (_, target) => !profile.allowsFormula target) with
                 | some (line, _) =>
                     let err := {
                       line := line
                       severity := 1
                       code := "LEAN_BACKEND_ND_FORMULA"
-                      message := "The checked ND engine currently supports only atoms, ∧, ∨, ⟶, and ⊥."
+                      message := s!"The theorem statement is not in the language of {profile.displayName}."
                     }
                     ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
                 | none =>
@@ -1903,93 +1881,108 @@ private def evaluateLinearTheorem (thm : ParsedTheorem) :
         line := thm.firstLine
         severity := 1
         code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-        message := s!"Profile `{thm.profileText}` is not supported by the checked linear engine."
+        message := "Every theorem must declare a complete supported logic specification."
       }
       return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | some profile =>
-      let hypsE := thm.hypotheses.map parseHypothesisLine
-      let goalEntries :=
-        if thm.goals.isEmpty then
-          thm.statement?.map List.singleton |>.getD []
-        else
-          thm.goals
-      let goalsE := goalEntries.map (fun entry =>
-        match parseGoalLine entry with
-        | Except.ok f => Except.ok (entry.line, f)
-        | Except.error e => Except.error e)
-      let goalsE :=
-        if thm.goals.isEmpty then
-          goalEntries.map (fun entry =>
-            match parseStatementGoal entry with
-            | Except.ok f => Except.ok (entry.line, f)
-            | Except.error e => Except.error e)
-        else goalsE
-      let tactics := thm.tactics.map parseTacticLine
-      match hypsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
-      | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-      | none =>
-          match goalsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
-          | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-          | none =>
-              let hyps := hypsE.filterMap (fun | Except.ok h => some h | Except.error _ => none)
-              let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
-              let initial : ExecutionState := { work := initialGoals thm hyps goals, solved := [], nextGoalIndex := goals.length + 1 }
-              let rec runTactics (state : ExecutionState) (remaining : List ParsedTactic) :
-                  ExecutionState × Option EngineError :=
-                match remaining with
-                | [] => (state, none)
-                | tactic :: rest =>
-                    match applyTactic profile tactic state with
-                    | Except.ok next => runTactics next rest
-                    | Except.error err => (state, some err)
-              let (preFinal, tacticErr?) := runTactics initial tactics
-              match tacticErr? with
-              | some err =>
-                  let openGoals := openGoalsFromWork preFinal.work
-                  ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
-              | none =>
-                  match normalize profile preFinal with
-                  | Except.error err =>
-                      let openGoals := openGoalsFromWork preFinal.work
-                      ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
-                  | Except.ok st =>
-                      let openGoals := openGoalsFromWork st.work
-                      let verified := openGoals.isEmpty
-                      let status :=
-                        if verified then
-                          s!"Theorem {thm.name} verified in profile {profile.displayName}."
-                        else
-                          s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
-                      let warnings :=
-                        if verified then
-                          []
-                        else
-                          [{
-                            line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
-                            severity := 1
-                            code := "LEAN_BACKEND_OPEN_GOALS"
-                            message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
-                          }]
-                      ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
+      if !(profile.isLinearGentzen && profile.hasValidConfiguration) then
+        let err := {
+          line := thm.firstLine
+          severity := 1
+          code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+          message := "Only supported linear Gentzen logic specifications are accepted by the checked linear engine."
+        }
+        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+      else
+        let hypsE := thm.hypotheses.map (parseHypothesisLine profile)
+        let goalEntries :=
+          if thm.goals.isEmpty then
+            thm.statement?.map List.singleton |>.getD []
+          else
+            thm.goals
+        let goalsE := goalEntries.map (fun entry =>
+          match parseGoalLine profile entry with
+          | Except.ok f => Except.ok (entry.line, f)
+          | Except.error e => Except.error e)
+        let goalsE :=
+          if thm.goals.isEmpty then
+            goalEntries.map (fun entry =>
+              match parseStatementGoal profile entry with
+              | Except.ok f => Except.ok (entry.line, f)
+              | Except.error e => Except.error e)
+          else goalsE
+        let tactics := thm.tactics.map parseTacticLine
+        match hypsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
+        | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+        | none =>
+            match goalsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
+            | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+            | none =>
+                let hyps := hypsE.filterMap (fun | Except.ok h => some h | Except.error _ => none)
+                let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
+                let initial : ExecutionState := { work := initialGoals thm hyps goals, solved := [], nextGoalIndex := goals.length + 1 }
+                let rec runTactics (state : ExecutionState) (remaining : List ParsedTactic) :
+                    ExecutionState × Option EngineError :=
+                  match remaining with
+                  | [] => (state, none)
+                  | tactic :: rest =>
+                      match applyTactic profile tactic state with
+                      | Except.ok next => runTactics next rest
+                      | Except.error err => (state, some err)
+                let (preFinal, tacticErr?) := runTactics initial tactics
+                match tacticErr? with
+                | some err =>
+                    let openGoals := openGoalsFromWork preFinal.work
+                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                | none =>
+                    match normalize profile preFinal with
+                    | Except.error err =>
+                        let openGoals := openGoalsFromWork preFinal.work
+                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                    | Except.ok st =>
+                        let openGoals := openGoalsFromWork st.work
+                        let verified := openGoals.isEmpty
+                        let status :=
+                          if verified then
+                            s!"Theorem {thm.name} verified in profile {profile.displayName}."
+                          else
+                            s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
+                        let warnings :=
+                          if verified then
+                            []
+                          else
+                            [{
+                              line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
+                              severity := 1
+                              code := "LEAN_BACKEND_OPEN_GOALS"
+                              message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
+                            }]
+                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
 
 private def evaluateTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError :=
   match thm.profile? with
   | some profile =>
-      if profile.isLinearGentzen then
+      if profile.isLinearGentzen && profile.hasValidConfiguration then
         evaluateLinearTheorem thm
-      else if profile.isNaturalDeduction then
+      else if profile.isNaturalDeduction && profile.hasValidConfiguration then
         evaluateNDTheorem thm
       else
         let err := {
           line := thm.firstLine
           severity := 1
           code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-          message := s!"Profile `{thm.profileText}` is not supported by the checked engines."
+          message := s!"Logic `{thm.profileText}` is not supported by the checked engines."
         }
         ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | none =>
-      evaluateLinearTheorem thm
+      let err := {
+        line := thm.firstLine
+        severity := 1
+        code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+        message := "Every theorem must declare a complete supported logic specification."
+      }
+      ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
 
 def evaluate (snapshot : Snapshot) : EngineState :=
   match snapshot.theorem? with

@@ -1,4 +1,4 @@
-import FastProofTheory
+import FastProofTheoryBackend
 import Lean.Data.Json
 
 open Lean

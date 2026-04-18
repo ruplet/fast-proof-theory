@@ -215,20 +215,23 @@ export class GoalsPanel implements vscode.Disposable {
         const display = state && state.display ? state.display : null;
         const tone = state && state.tone ? state.tone : "normal";
         const sections = display && Array.isArray(display.sections) ? display.sections : [];
+        const rulesSection = sections.find(section => section.title === "Rules");
         const profileSection = sections.find(section => section.title === "Profile");
         const calculusSection = sections.find(section => section.title === "Calculus");
-        const logicLabel = profileSection && Array.isArray(profileSection.body) && profileSection.body.length
+        const logicLabel = rulesSection && Array.isArray(rulesSection.body) && rulesSection.body.length
+          ? String(rulesSection.body[0])
+          : profileSection && Array.isArray(profileSection.body) && profileSection.body.length
           ? String(profileSection.body[0])
           : "";
         const calculusLabel = calculusSection && Array.isArray(calculusSection.body) && calculusSection.body.length
           ? String(calculusSection.body[0])
           : "";
-        const isSequent = /sequent/i.test(calculusLabel);
+        const isSequent = /sequent|gentzen/i.test(calculusLabel);
         const countLabel = goals.length
           ? (goals.length + " " + (isSequent ? (goals.length === 1 ? "sequent" : "sequents") : (goals.length === 1 ? "goal" : "goals")))
           : "";
-        meta.textContent = [countLabel, logicLabel, calculusLabel].filter(Boolean).join(" · ");
-        const visibleSections = sections.filter(section => !["Profile", "Calculus", "Goals"].includes(section.title));
+        meta.textContent = [countLabel, calculusLabel].filter(Boolean).join(" · ");
+        const visibleSections = sections.filter(section => !["Profile", "Rules", "Calculus", "Language", "Goals"].includes(section.title));
         const statusClass = tone === "error" ? "statusError" : "target";
         const statusHtml = display && tone === "error"
           ? "<div class='" + statusClass + "'>" + esc(display.status) + "</div>"

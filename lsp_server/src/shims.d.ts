@@ -29,11 +29,6 @@ declare module "vscode-languageserver-textdocument" {
   }
 }
 
-declare module "protobufjs" {
-  export type Root = any;
-  export function load(paths: string[]): Promise<any>;
-}
-
 declare module "path" {
   export function resolve(...paths: string[]): string;
   export function join(...paths: string[]): string;
