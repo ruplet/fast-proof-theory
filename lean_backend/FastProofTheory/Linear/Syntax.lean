@@ -12,8 +12,11 @@ inductive Token where
   | bang
   | tensor
   | with
+  | andTok
   | plus
+  | orTok
   | lolli
+  | imp
   | one
   | top
   | zero
@@ -49,8 +52,11 @@ partial def tokenizeChars : List Char → Except String (List Token)
           | "bot" => Token.bottom
           | "tensor" => Token.tensor
           | "with" => Token.with
+          | "and" => Token.andTok
           | "plus" => Token.plus
+          | "or" => Token.orTok
           | "lolli" => Token.lolli
+          | "imp" => Token.imp
           | _ => Token.ident ident
         match tokenizeChars remaining with
         | .ok tail => .ok (token :: tail)
@@ -73,6 +79,10 @@ partial def tokenizeChars : List Char → Except String (List Token)
             match tokenizeChars rest with
             | .ok tail => .ok (Token.with :: tail)
             | .error err => .error err
+        | '∧', _ =>
+            match tokenizeChars rest with
+            | .ok tail => .ok (Token.andTok :: tail)
+            | .error err => .error err
         | '*', _ =>
             match tokenizeChars rest with
             | .ok tail => .ok (Token.tensor :: tail)
@@ -80,6 +90,10 @@ partial def tokenizeChars : List Char → Except String (List Token)
         | '+', _ =>
             match tokenizeChars rest with
             | .ok tail => .ok (Token.plus :: tail)
+            | .error err => .error err
+        | '∨', _ =>
+            match tokenizeChars rest with
+            | .ok tail => .ok (Token.orTok :: tail)
             | .error err => .error err
         | '1', _ =>
             match tokenizeChars rest with
@@ -101,6 +115,14 @@ partial def tokenizeChars : List Char → Except String (List Token)
             match tokenizeChars rest with
             | .ok tail => .ok (Token.lolli :: tail)
             | .error err => .error err
+        | '→', _ =>
+            match tokenizeChars rest with
+            | .ok tail => .ok (Token.imp :: tail)
+            | .error err => .error err
+        | '⟶', _ =>
+            match tokenizeChars rest with
+            | .ok tail => .ok (Token.imp :: tail)
+            | .error err => .error err
         | '⊤', _ =>
             match tokenizeChars rest with
             | .ok tail => .ok (Token.top :: tail)
@@ -111,7 +133,15 @@ partial def tokenizeChars : List Char → Except String (List Token)
             | .error err => .error err
         | '-', '>' :: tail =>
             match tokenizeChars tail with
-            | .ok tail' => .ok (Token.lolli :: tail')
+            | .ok tail' => .ok (Token.imp :: tail')
+            | .error err => .error err
+        | '\\', '/' :: tail =>
+            match tokenizeChars tail with
+            | .ok tail' => .ok (Token.andTok :: tail')
+            | .error err => .error err
+        | '/', '\\' :: tail =>
+            match tokenizeChars tail with
+            | .ok tail' => .ok (Token.orTok :: tail')
             | .error err => .error err
         | _, _ => .error s!"Unexpected character `{c}` in formula."
 
@@ -121,34 +151,43 @@ def tokenize (text : String) : Except String (List Token) :=
 abbrev Parser := List Token → Except String (Formula × List Token)
 
 mutual
-  partial def parseLolli : Parser := fun tokens => do
-    let (lhs, rest) <- parseWith tokens
+  partial def parseArrow : Parser := fun tokens => do
+    let (lhs, rest) <- parseAndLike tokens
     match rest with
     | Token.lolli :: tail =>
-        let (rhs, final) <- parseLolli tail
+        let (rhs, final) <- parseArrow tail
         pure (.lolli lhs rhs, final)
+    | Token.imp :: tail =>
+        let (rhs, final) <- parseArrow tail
+        pure (.imp lhs rhs, final)
     | _ => pure (lhs, rest)
 
-  partial def parseWith : Parser := fun tokens => do
-    let (first, rest) <- parsePlus tokens
-    parseWithTail first rest
+  partial def parseAndLike : Parser := fun tokens => do
+    let (first, rest) <- parseOrLike tokens
+    parseAndLikeTail first rest
 
-  partial def parseWithTail (acc : Formula) : Parser := fun tokens =>
+  partial def parseAndLikeTail (acc : Formula) : Parser := fun tokens =>
     match tokens with
     | Token.with :: tail => do
-        let (rhs, rest) <- parsePlus tail
-        parseWithTail (.with acc rhs) rest
+        let (rhs, rest) <- parseOrLike tail
+        parseAndLikeTail (.with acc rhs) rest
+    | Token.andTok :: tail => do
+        let (rhs, rest) <- parseOrLike tail
+        parseAndLikeTail (.and acc rhs) rest
     | _ => pure (acc, tokens)
 
-  partial def parsePlus : Parser := fun tokens => do
+  partial def parseOrLike : Parser := fun tokens => do
     let (first, rest) <- parseTensor tokens
-    parsePlusTail first rest
+    parseOrLikeTail first rest
 
-  partial def parsePlusTail (acc : Formula) : Parser := fun tokens =>
+  partial def parseOrLikeTail (acc : Formula) : Parser := fun tokens =>
     match tokens with
     | Token.plus :: tail => do
         let (rhs, rest) <- parseTensor tail
-        parsePlusTail (.plus acc rhs) rest
+        parseOrLikeTail (.plus acc rhs) rest
+    | Token.orTok :: tail => do
+        let (rhs, rest) <- parseTensor tail
+        parseOrLikeTail (.or acc rhs) rest
     | _ => pure (acc, tokens)
 
   partial def parseTensor : Parser := fun tokens => do
@@ -177,7 +216,7 @@ mutual
     | Token.zero :: tail => pure (.zero, tail)
     | Token.bottom :: tail => pure (.bottom, tail)
     | Token.lparen :: tail => do
-        let (inner, rest) <- parseLolli tail
+        let (inner, rest) <- parseArrow tail
         match rest with
         | Token.rparen :: final => pure (inner, final)
         | _ => .error "Expected `)`."
@@ -186,7 +225,7 @@ end
 
 def parseFormula (text : String) : Except String Formula := do
   let tokens <- tokenize text
-  let (formula, rest) <- parseLolli tokens
+  let (formula, rest) <- parseArrow tokens
   match rest with
   | [] => pure formula
   | _ => .error "Unexpected trailing tokens in formula."
@@ -248,11 +287,32 @@ partial def containsBang : Formula → Bool
   | .whyNot a => containsBang a
   | _ => false
 
+partial def containsLinearConnective : Formula → Bool
+  | .tensor a b => containsLinearConnective a || containsLinearConnective b || true
+  | .with a b => containsLinearConnective a || containsLinearConnective b || true
+  | .plus a b => containsLinearConnective a || containsLinearConnective b || true
+  | .lolli a b => containsLinearConnective a || containsLinearConnective b || true
+  | .par a b => containsLinearConnective a || containsLinearConnective b || true
+  | .bang a => containsLinearConnective a || true
+  | .whyNot a => containsLinearConnective a || true
+  | .one => true
+  | .zero => true
+  | .top => true
+  | .bottom => true
+  | .imp a b => containsLinearConnective a || containsLinearConnective b
+  | .and a b => containsLinearConnective a || containsLinearConnective b
+  | .or a b => containsLinearConnective a || containsLinearConnective b
+  | .all _ a => containsLinearConnective a
+  | .ex _ a => containsLinearConnective a
+  | _ => false
+
 def inferProfileForFormula (formula : Formula) : FastProofTheory.Linear.Profile :=
   if containsBang formula then
     .withExponentials
-  else
+  else if containsLinearConnective formula then
     .withoutExponentials
+  else
+    .ipcND
 
 def parseTheoremStatement (text : String) : Except String Formula := do
   let trimmed := trimString text

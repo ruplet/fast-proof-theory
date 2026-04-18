@@ -83,8 +83,12 @@ inductive WorkItem where
   | finishPlusLeft (goal : GoalState)
   | finishPlusRight (goal : GoalState)
   | finishBang (goal : GoalState)
-  | finishDerived1 (goal : GoalState) (name : String)
-  | finishDerived2 (goal : GoalState) (name : String)
+  | finishWithLeft1 (goal : GoalState) (focus : HypFocus)
+  | finishWithLeft2 (goal : GoalState) (focus : HypFocus)
+  | finishTensorLeft (goal : GoalState) (focus : LinearFocus)
+  | finishPlusLeftElim (goal : GoalState) (focus : LinearFocus)
+  | finishLolliLeft (goal : GoalState) (focus : LinearFocus) (split : SplitWitness)
+  | finishBangLeft (goal : GoalState) (focus : LinearFocus)
 
 structure ExecutionState where
   work : List WorkItem
@@ -125,6 +129,8 @@ def isTacticKeyword (word : String) : Bool :=
     "lone", "lzero", "lbottom", "lbang", "lwhynot",
     "rwith", "rtensor", "rplusl", "rplusr", "rpar", "rlolli", "rneg", "rone", "rbottom",
     "rtop", "rbang", "rwhynot", "wbang", "wwhynot", "cbang", "cwhynot", "cut",
+    "intro", "assumption", "constructor", "left", "right", "cases", "apply", "exfalso",
+    "absurd", "by_contra",
     "translate", "translate_to", "tactic", "solve_np"
   ]
 
@@ -240,9 +246,7 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
                       let finalText := if profileText.isEmpty then inferProfileText finalProfile.get! else profileText
                       let headerError? :=
                         if profileText.isEmpty then
-                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN`."
-                        else if not (isGentzenProfileText finalText) then
-                          some "Only sequent-calculus linear logic is supported right now. Use `using LL in GENTZEN`."
+                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN` or `using IPC in ND`."
                         else
                           none
                       some (name, finalText, finalProfile, some statementText, headerError?)
@@ -250,9 +254,7 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
                       let fallbackText := if profileText.isEmpty then "LL" else profileText
                       let headerError? :=
                         if profileText.isEmpty then
-                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN`."
-                        else if not (isGentzenProfileText fallbackText) then
-                          some "Only sequent-calculus linear logic is supported right now. Use `using LL in GENTZEN`."
+                          some "Declare the proof style explicitly in the header, for example `using LL in GENTZEN` or `using IPC in ND`."
                         else
                           none
                       some (name, fallbackText, profile?.orElse (fun _ => some Profile.withoutExponentials), some statementText, headerError?)
@@ -585,6 +587,18 @@ private def replaceHypInGoal
       { goal with linear := before ++ replacement ++ after }
   | .unrestricted =>
       { goal with unrestricted := before ++ replacement ++ after }
+
+private def mkLinearFocus (before : List NamedHyp) (focused : NamedHyp) (after : List NamedHyp) : LinearFocus :=
+  { before := before.map (·.formula), focused := focused.formula, after := after.map (·.formula) }
+
+private def mkHypFocus
+    (kind : ContextKind)
+    (before : List NamedHyp)
+    (focused : NamedHyp)
+    (after : List NamedHyp) : HypFocus :=
+  match kind with
+  | .linear => .linear { before := before.map (·.formula), focused := focused.formula, after := after.map (·.formula) }
+  | .unrestricted => .unrestricted { before := before.map (·.formula), focused := focused.formula, after := after.map (·.formula) }
 
 private def splitGoalByNames (goal : GoalState) (names : List String) :
     Except EngineError (GoalState × GoalState × SplitWitness) := do
@@ -1060,39 +1074,131 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
             code := "LEAN_BACKEND_INTERNAL"
             message := "bang completion frame is missing a solved subproof."
           }
-  | WorkItem.finishDerived1 goal name :: rest =>
+  | WorkItem.finishWithLeft1 goal focus :: rest =>
       match state.solved with
       | body :: solvedRest =>
-          let checked : CheckedCertificate := {
-            profile := profile
-            goal := goalToKernel goal
-            certificate := .derived name [body.certificate]
-            summary := s!"Checked derived rule {name}."
-          }
-          normalize profile { state with work := rest, solved := checked :: solvedRest }
+          let certificate := Certificate.withLeft1 focus body.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
       | _ =>
           throw {
             line := goal.sourceLine
             severity := 1
             code := "LEAN_BACKEND_INTERNAL"
-            message := s!"Derived frame `{name}` is missing a solved subproof."
+            message := "with-left-1 completion frame is missing a solved subproof."
           }
-  | WorkItem.finishDerived2 goal name :: rest =>
+  | WorkItem.finishWithLeft2 goal focus :: rest =>
+      match state.solved with
+      | body :: solvedRest =>
+          let certificate := Certificate.withLeft2 focus body.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
+      | _ =>
+          throw {
+            line := goal.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_INTERNAL"
+            message := "with-left-2 completion frame is missing a solved subproof."
+          }
+  | WorkItem.finishTensorLeft goal focus :: rest =>
+      match state.solved with
+      | body :: solvedRest =>
+          let certificate := Certificate.tensorLeft focus body.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
+      | _ =>
+          throw {
+            line := goal.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_INTERNAL"
+            message := "tensor-left completion frame is missing a solved subproof."
+          }
+  | WorkItem.finishPlusLeftElim goal focus :: rest =>
       match state.solved with
       | right :: left :: solvedRest =>
-          let checked : CheckedCertificate := {
-            profile := profile
-            goal := goalToKernel goal
-            certificate := .derived name [left.certificate, right.certificate]
-            summary := s!"Checked derived rule {name}."
-          }
-          normalize profile { state with work := rest, solved := checked :: solvedRest }
+          let certificate := Certificate.plusLeftElim focus left.certificate right.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
       | _ =>
           throw {
             line := goal.sourceLine
             severity := 1
             code := "LEAN_BACKEND_INTERNAL"
-            message := s!"Derived frame `{name}` is missing solved subproofs."
+            message := "plus-left completion frame is missing solved subproofs."
+          }
+  | WorkItem.finishLolliLeft goal focus split :: rest =>
+      match state.solved with
+      | right :: left :: solvedRest =>
+          let certificate := Certificate.lolliLeft focus split left.certificate right.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
+      | _ =>
+          throw {
+            line := goal.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_INTERNAL"
+            message := "lolli-left completion frame is missing solved subproofs."
+          }
+  | WorkItem.finishBangLeft goal focus :: rest =>
+      match state.solved with
+      | body :: solvedRest =>
+          let certificate := Certificate.bangLeft focus body.certificate
+          match checkCertificate profile (goalToKernel goal) certificate with
+          | .ok checked =>
+              normalize profile { state with work := rest, solved := checked :: solvedRest }
+          | .error err =>
+              throw {
+                line := goal.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_KERNEL"
+                message := renderKernelError err
+              }
+      | _ =>
+          throw {
+            line := goal.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_INTERNAL"
+            message := "bang-left completion frame is missing a solved subproof."
           }
   | _ => pure state
 
@@ -1187,40 +1293,141 @@ private def applyTactic (profile : Profile) (tactic : ParsedTactic) (state : Exe
             work := WorkItem.goal bodyGoal :: WorkItem.finishBang goal :: rest
           }
       | "lleft" =>
+          let (name, _) <- parseAtClause tactic
           let nextGoal <- rewriteWithTactic goal tactic true
+          let focus <-
+            match lookupGoalHyp goal name with
+            | some (kind, before, hyp, after) => pure <| mkHypFocus kind before hyp after
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LLEFT"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
           pure {
             state with
-            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lleft" } :: WorkItem.finishDerived1 goal "lleft" :: rest
+            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lleft" } :: WorkItem.finishWithLeft1 goal focus :: rest
           }
       | "lright" =>
+          let (name, _) <- parseAtClause tactic
           let nextGoal <- rewriteWithTactic goal tactic false
+          let focus <-
+            match lookupGoalHyp goal name with
+            | some (kind, before, hyp, after) => pure <| mkHypFocus kind before hyp after
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LRIGHT"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
           pure {
             state with
-            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lright" } :: WorkItem.finishDerived1 goal "lright" :: rest
+            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lright" } :: WorkItem.finishWithLeft2 goal focus :: rest
           }
       | "ltensor" =>
+          let (name, _) <- parseAtClause tactic
           let nextGoal <- tensorLeftGoal goal tactic
+          let focus <-
+            match lookupGoalHyp goal name with
+            | some (.linear, before, hyp, after) => pure <| mkLinearFocus before hyp after
+            | some (.unrestricted, _, _, _) =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LTENSOR"
+                  message := "ltensor applies only to linear hypotheses."
+                }
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LTENSOR"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
           pure {
             state with
-            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.ltensor" } :: WorkItem.finishDerived1 goal "ltensor" :: rest
+            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.ltensor" } :: WorkItem.finishTensorLeft goal focus :: rest
           }
       | "lplus" =>
+          let (name, _) <- parseAtClause tactic
           let (leftGoal, rightGoal) <- plusLeftGoals goal tactic
+          let focus <-
+            match lookupGoalHyp goal name with
+            | some (.linear, before, hyp, after) => pure <| mkLinearFocus before hyp after
+            | some (.unrestricted, _, _, _) =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LPLUS"
+                  message := "lplus applies only to linear hypotheses."
+                }
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LPLUS"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
           pure {
             state with
-            work := WorkItem.goal leftGoal :: WorkItem.goal rightGoal :: WorkItem.finishDerived2 goal "lplus" :: rest
+            work := WorkItem.goal leftGoal :: WorkItem.goal rightGoal :: WorkItem.finishPlusLeftElim goal focus :: rest
           }
       | "llolli" =>
+          let (name, restArgs) <- parseAtClause tactic
           let (premiseGoal, consequenceGoal) <- lolliLeftGoals goal tactic
+          let (usingNames, _) := parseUsingAndAs restArgs
+          let focusAndSplit <-
+            match lookupGoalHyp goal name with
+            | some (.linear, before, hyp, after) =>
+                let tailHyps := before ++ after
+                let usingSet := usingNames.eraseDups
+                let leftHyps := tailHyps.filter (fun item => item.name ∈ usingSet)
+                let rightHyps := tailHyps.filter (fun item => item.name ∉ usingSet)
+                pure (mkLinearFocus before hyp after, SplitWitness.explicit (leftHyps.map (·.formula)) (rightHyps.map (·.formula)))
+            | some (.unrestricted, _, _, _) =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LLOLLI"
+                  message := "llolli applies only to linear hypotheses."
+                }
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LLOLLI"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
+          let (focus, split) := focusAndSplit
           pure {
             state with
-            work := WorkItem.goal premiseGoal :: WorkItem.goal consequenceGoal :: WorkItem.finishDerived2 goal "llolli" :: rest
+            work := WorkItem.goal premiseGoal :: WorkItem.goal consequenceGoal :: WorkItem.finishLolliLeft goal focus split :: rest
           }
       | "lbang" =>
+          let (name, _) <- parseAtClause tactic
           let nextGoal <- bangLeftGoal goal tactic
+          let focus <-
+            match lookupGoalHyp goal name with
+            | some (.linear, before, hyp, after) => pure <| mkLinearFocus before hyp after
+            | some (.unrestricted, _, _, _) =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LBANG"
+                  message := "lbang applies only to linear hypotheses."
+                }
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_LBANG"
+                  message := s!"Unknown hypothesis `{name}`."
+                }
           pure {
             state with
-            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lbang" } :: WorkItem.finishDerived1 goal "lbang" :: rest
+            work := WorkItem.goal { nextGoal with id := s!"{goal.id}.lbang" } :: WorkItem.finishBangLeft goal focus :: rest
           }
       | other =>
           throw {
@@ -1251,6 +1458,432 @@ private def openGoalsFromWork (work : List WorkItem) : List EngineGoal :=
       | WorkItem.goal goal => goalToView goal :: acc
       | _ => acc)
     []
+
+structure NDGoalState where
+  id : String
+  hypotheses : List NamedHyp
+  target : Formula
+  sourceLine : Nat
+
+private def ndGoalToView (goal : NDGoalState) : EngineGoal :=
+  {
+    id := goal.id
+    hypotheses := goal.hypotheses.map (fun hyp => s!"{hyp.name} : {renderFormula hyp.formula}")
+    target := renderFormula goal.target
+  }
+
+private partial def ndFormulaAllowed : Formula → Bool
+  | .atom _ => true
+  | .imp a b => ndFormulaAllowed a && ndFormulaAllowed b
+  | .and a b => ndFormulaAllowed a && ndFormulaAllowed b
+  | .or a b => ndFormulaAllowed a && ndFormulaAllowed b
+  | .bot => true
+  | .bottom => true
+  | _ => false
+
+private def parseCasesAsTwo (tactic : ParsedTactic) : Except EngineError (String × String × String) := do
+  match tactic.args with
+  | "at" :: hypName :: "as" :: leftName :: rightName :: _ =>
+      pure (hypName, leftName, rightName)
+  | _ =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_CASES"
+        message := "cases requires `at <hypothesis> as <leftName> <rightName>`."
+      }
+
+private def ndLookupHyp
+    (goal : NDGoalState)
+    (name : String) :
+    Option (List NamedHyp × NamedHyp × List NamedHyp) :=
+  extractNamedHyp goal.hypotheses name
+
+private def ndReplaceHyp
+    (goal : NDGoalState)
+    (before : List NamedHyp)
+    (replacement : List NamedHyp)
+    (after : List NamedHyp) :
+    NDGoalState :=
+  { goal with hypotheses := before ++ replacement ++ after }
+
+private def ndIntroGoal (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError NDGoalState := do
+  match goal.target with
+  | .imp premise target =>
+      let hypName := tactic.args.head?.getD s!"h{goal.hypotheses.length + 1}"
+      if goal.hypotheses.any (fun hyp => hyp.name = hypName) then
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_INTRO"
+          message := s!"Hypothesis name `{hypName}` is already in scope."
+        }
+      pure {
+        goal with
+        id := s!"{goal.id}.body"
+        hypotheses := { name := hypName, formula := premise, sourceLine := tactic.sourceLine } :: goal.hypotheses
+        target := target
+      }
+  | _ =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_INTRO"
+        message := "intro applies only to implication goals."
+      }
+
+private def ndAssumptionCloses (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError Unit := do
+  let name <-
+    match tactic.args.head? with
+    | some n => pure n
+    | none =>
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_ASSUMPTION"
+          message := "assumption requires a hypothesis name."
+        }
+  match goal.hypotheses.find? (fun hyp => hyp.name = name) with
+  | some hyp =>
+      unless formulaMatches hyp.formula goal.target do
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_ASSUMPTION"
+          message := s!"Hypothesis `{name}` does not match the current goal."
+        }
+  | none =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_ASSUMPTION"
+        message := s!"Unknown hypothesis `{name}`."
+      }
+
+private def ndConstructorGoals (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError (NDGoalState × NDGoalState) := do
+  match goal.target with
+  | .and left right =>
+      pure (
+        { goal with id := s!"{goal.id}.left", target := left },
+        { goal with id := s!"{goal.id}.right", target := right }
+      )
+  | _ =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_CONSTRUCTOR"
+        message := "constructor applies only to conjunction goals."
+      }
+
+private def ndOrIntroGoal (goal : NDGoalState) (tactic : ParsedTactic) (useLeft : Bool) :
+    Except EngineError NDGoalState := do
+  match goal.target with
+  | .or left right =>
+      pure { goal with id := s!"{goal.id}.{if useLeft then "left" else "right"}", target := if useLeft then left else right }
+  | _ =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := if useLeft then "LEAN_BACKEND_ND_LEFT" else "LEAN_BACKEND_ND_RIGHT"
+        message := s!"Tactic `{tactic.name}` applies only to disjunction goals."
+      }
+
+private def ndAndProjectionGoal (goal : NDGoalState) (tactic : ParsedTactic) (useLeft : Bool) :
+    Except EngineError NDGoalState := do
+  let (name, rest) <- parseAtClause tactic
+  let alias := (parseAsOne rest).getD name
+  match ndLookupHyp goal name with
+  | some (before, hyp, after) =>
+      match hyp.formula with
+      | .and left right =>
+          pure <| ndReplaceHyp goal before [{ name := alias, formula := if useLeft then left else right, sourceLine := tactic.sourceLine }] after
+      | _ =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := if useLeft then "LEAN_BACKEND_ND_LEFT" else "LEAN_BACKEND_ND_RIGHT"
+            message := s!"Tactic `{tactic.name}` with `at` applies only to conjunction hypotheses."
+          }
+  | none =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := if useLeft then "LEAN_BACKEND_ND_LEFT" else "LEAN_BACKEND_ND_RIGHT"
+        message := s!"Unknown hypothesis `{name}`."
+      }
+
+private def ndCasesGoals (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError (NDGoalState × NDGoalState) := do
+  let (name, leftName, rightName) <- parseCasesAsTwo tactic
+  match ndLookupHyp goal name with
+  | some (before, hyp, after) =>
+      match hyp.formula with
+      | .or left right =>
+          let leftGoal :=
+            ndReplaceHyp goal before [{ name := leftName, formula := left, sourceLine := tactic.sourceLine }] after
+          let rightGoal :=
+            ndReplaceHyp goal before [{ name := rightName, formula := right, sourceLine := tactic.sourceLine }] after
+          pure ({ leftGoal with id := s!"{goal.id}.casesL" }, { rightGoal with id := s!"{goal.id}.casesR" })
+      | _ =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_ND_CASES"
+            message := "cases applies only to disjunction hypotheses."
+          }
+  | none =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_CASES"
+        message := s!"Unknown hypothesis `{name}`."
+      }
+
+private def ndApplyGoal (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError NDGoalState := do
+  let name <-
+    match tactic.args.head? with
+    | some n => pure n
+    | none =>
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_APPLY"
+          message := "apply requires a hypothesis name."
+        }
+  match goal.hypotheses.find? (fun hyp => hyp.name = name) with
+  | some hyp =>
+      match hyp.formula with
+      | .imp premise conclusion =>
+          if formulaMatches conclusion goal.target then
+            pure { goal with id := s!"{goal.id}.apply", target := premise }
+          else
+            throw {
+              line := tactic.sourceLine
+              severity := 1
+              code := "LEAN_BACKEND_ND_APPLY"
+              message := s!"Hypothesis `{name}` does not conclude the current goal."
+            }
+      | _ =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_ND_APPLY"
+            message := "apply requires an implication hypothesis."
+          }
+  | none =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_APPLY"
+        message := s!"Unknown hypothesis `{name}`."
+      }
+
+private def ndExfalsoGoal (goal : NDGoalState) : NDGoalState :=
+  { goal with id := s!"{goal.id}.exfalso", target := .bot }
+
+private def ndAbsurdCloses (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError Unit := do
+  let name <-
+    match tactic.args.head? with
+    | some n => pure n
+    | none =>
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_ABSURD"
+          message := "absurd requires a hypothesis name."
+        }
+  match goal.hypotheses.find? (fun hyp => hyp.name = name) with
+  | some hyp =>
+      unless formulaMatches hyp.formula .bot do
+        throw {
+          line := tactic.sourceLine
+          severity := 1
+          code := "LEAN_BACKEND_ND_ABSURD"
+          message := s!"Hypothesis `{name}` is not ⊥."
+        }
+  | none =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_ND_ABSURD"
+        message := s!"Unknown hypothesis `{name}`."
+      }
+
+private def ndByContraGoal (profile : Profile) (goal : NDGoalState) (tactic : ParsedTactic) :
+    Except EngineError NDGoalState := do
+  unless profile.logic = .cpc do
+    throw {
+      line := tactic.sourceLine
+      severity := 1
+      code := "LEAN_BACKEND_ND_BY_CONTRA"
+      message := "by_contra is available only in CPC."
+    }
+  let hypName := tactic.args.head?.getD s!"h{goal.hypotheses.length + 1}"
+  if goal.hypotheses.any (fun hyp => hyp.name = hypName) then
+    throw {
+      line := tactic.sourceLine
+      severity := 1
+      code := "LEAN_BACKEND_ND_BY_CONTRA"
+      message := s!"Hypothesis name `{hypName}` is already in scope."
+    }
+  pure {
+    goal with
+    id := s!"{goal.id}.contra"
+    hypotheses := { name := hypName, formula := .imp goal.target .bot, sourceLine := tactic.sourceLine } :: goal.hypotheses
+    target := .bot
+  }
+
+private def applyNDTactic (profile : Profile) (tactic : ParsedTactic) (goals : List NDGoalState) :
+    Except EngineError (List NDGoalState) := do
+  match goals with
+  | [] =>
+      throw {
+        line := tactic.sourceLine
+        severity := 1
+        code := "LEAN_BACKEND_EXTRA_TACTIC"
+        message := s!"No open goals remain for tactic `{tactic.name}`."
+      }
+  | goal :: rest =>
+      match tactic.name with
+      | "intro" =>
+          let next <- ndIntroGoal goal tactic
+          pure (next :: rest)
+      | "assumption" =>
+          let _ <- ndAssumptionCloses goal tactic
+          pure rest
+      | "constructor" =>
+          let (leftGoal, rightGoal) <- ndConstructorGoals goal tactic
+          pure (leftGoal :: rightGoal :: rest)
+      | "left" =>
+          if tactic.args.any (· = "at") then
+            let next <- ndAndProjectionGoal goal tactic true
+            pure (next :: rest)
+          else
+            let next <- ndOrIntroGoal goal tactic true
+            pure (next :: rest)
+      | "right" =>
+          if tactic.args.any (· = "at") then
+            let next <- ndAndProjectionGoal goal tactic false
+            pure (next :: rest)
+          else
+            let next <- ndOrIntroGoal goal tactic false
+            pure (next :: rest)
+      | "cases" =>
+          let (leftGoal, rightGoal) <- ndCasesGoals goal tactic
+          pure (leftGoal :: rightGoal :: rest)
+      | "apply" =>
+          let next <- ndApplyGoal goal tactic
+          pure (next :: rest)
+      | "exfalso" =>
+          pure (ndExfalsoGoal goal :: rest)
+      | "absurd" =>
+          let _ <- ndAbsurdCloses goal tactic
+          pure rest
+      | "by_contra" =>
+          let next <- ndByContraGoal profile goal tactic
+          pure (next :: rest)
+      | other =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_UNSUPPORTED_TACTIC"
+            message := s!"Tactic `{other}` is not implemented in the checked ND engine yet."
+          }
+
+private def evaluateNDTheorem (thm : ParsedTheorem) :
+    EngineState × List EngineError := Id.run do
+  match thm.headerError? with
+  | some msg =>
+      let err := {
+        line := thm.firstLine
+        severity := 1
+        code := "LEAN_BACKEND_THEOREM_HEADER"
+        message := msg
+      }
+      return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+  | none =>
+      match thm.profile? with
+      | none =>
+          let err := {
+            line := thm.firstLine
+            severity := 1
+            code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+            message := s!"Profile `{thm.profileText}` is not supported by the checked ND engine."
+          }
+          return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+      | some profile =>
+          if !(profile.isNaturalDeduction && (profile.logic = .ipc || profile.logic = .cpc)) then
+            let err := {
+              line := thm.firstLine
+              severity := 1
+              code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+              message := "Only `IPC in ND` and `CPC in ND` are supported by the checked ND engine."
+            }
+            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+          else
+            let goalEntries := thm.statement?.map List.singleton |>.getD []
+            let goalsE := goalEntries.map (fun entry =>
+              match parseStatementGoal entry with
+              | Except.ok f => Except.ok (entry.line, f)
+              | Except.error e => Except.error e)
+            let tactics := thm.tactics.map parseTacticLine
+            match goalsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
+            | some err =>
+                ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+            | none =>
+                let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
+                match goals.find? (fun (_, target) => !ndFormulaAllowed target) with
+                | some (line, _) =>
+                    let err := {
+                      line := line
+                      severity := 1
+                      code := "LEAN_BACKEND_ND_FORMULA"
+                      message := "The checked ND engine currently supports only atoms, ∧, ∨, ⟶, and ⊥."
+                    }
+                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+                | none =>
+                let rec buildInitialGoals (remaining : List (Nat × Formula)) (idx : Nat) : List NDGoalState :=
+                  match remaining with
+                  | [] => []
+                  | (line, target) :: rest =>
+                      { id := s!"{thm.name}:g{idx}", hypotheses := [], target, sourceLine := line } :: buildInitialGoals rest (idx + 1)
+                let initialGoals : List NDGoalState := buildInitialGoals goals 1
+                let rec runTactics (stateGoals : List NDGoalState) (remaining : List ParsedTactic) :
+                    List NDGoalState × Option EngineError :=
+                  match remaining with
+                  | [] => (stateGoals, none)
+                  | tactic :: rest =>
+                      match applyNDTactic profile tactic stateGoals with
+                      | .ok next => runTactics next rest
+                      | .error err => (stateGoals, some err)
+                let (openGoalsState, tacticErr?) := runTactics initialGoals tactics
+                let openGoals := openGoalsState.map ndGoalToView
+                match tacticErr? with
+                | some err =>
+                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                | none =>
+                    let verified := openGoals.isEmpty
+                    let status :=
+                      if verified then
+                        s!"Theorem {thm.name} verified in profile {profile.displayName}."
+                      else
+                        s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
+                    let warnings :=
+                      if verified then
+                        []
+                      else
+                        [{
+                          line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
+                          severity := 1
+                          code := "LEAN_BACKEND_OPEN_GOALS"
+                          message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
+                        }]
+                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
 
 private def evaluateLinearTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError := Id.run do
@@ -1339,12 +1972,31 @@ private def evaluateLinearTheorem (thm : ParsedTheorem) :
                           }]
                       ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
 
+private def evaluateTheorem (thm : ParsedTheorem) :
+    EngineState × List EngineError :=
+  match thm.profile? with
+  | some profile =>
+      if profile.isLinearGentzen then
+        evaluateLinearTheorem thm
+      else if profile.isNaturalDeduction then
+        evaluateNDTheorem thm
+      else
+        let err := {
+          line := thm.firstLine
+          severity := 1
+          code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+          message := s!"Profile `{thm.profileText}` is not supported by the checked engines."
+        }
+        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+  | none =>
+      evaluateLinearTheorem thm
+
 def evaluate (snapshot : Snapshot) : EngineState :=
   match snapshot.theorem? with
   | none =>
       { snapshot, goals := [], status := "No active theorem." }
   | some thm =>
-      let (state, _) := evaluateLinearTheorem thm
+      let (state, _) := evaluateTheorem thm
       { state with snapshot := snapshot }
 
 private def theoremFailureDiagnostic (thm : ParsedTheorem) (errors : List EngineError) : List EngineError :=
@@ -1365,7 +2017,7 @@ def diagnosticsForSnapshot (snapshot : Snapshot) : List EngineError :=
   match snapshot.theorem? with
   | none => []
   | some thm =>
-      let (_, diags) := evaluateLinearTheorem thm
+      let (_, diags) := evaluateTheorem thm
       diags ++ theoremFailureDiagnostic thm diags
 
 def diagnosticsForTheorems (theorems : List ParsedTheorem) : List EngineError :=
@@ -1373,13 +2025,13 @@ def diagnosticsForTheorems (theorems : List ParsedTheorem) : List EngineError :=
     match remaining with
     | [] => []
     | thm :: rest =>
-        let (_, diags) := evaluateLinearTheorem thm
+        let (_, diags) := evaluateTheorem thm
         diags ++ theoremFailureDiagnostic thm diags ++ loop rest
   loop theorems
 
 def theoremStatusesForTheorems (theorems : List ParsedTheorem) : List TheoremStatus :=
   theorems.map fun thm =>
-    let (state, _) := evaluateLinearTheorem thm
+    let (state, _) := evaluateTheorem thm
     { name := thm.name, line := thm.firstLine, verified := state.verified }
 
 end FastProofTheory.Linear

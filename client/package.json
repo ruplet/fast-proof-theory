@@ -42,6 +42,11 @@
           "description": "Path to the MyPA LSP server entrypoint (server.js). Leave empty to use ../lsp_server/out/server.js relative to the extension."
         }
       }
+    },
+    "configurationDefaults": {
+      "[mypa]": {
+        "editor.unicodeHighlight.ambiguousCharacters": false
+      }
     }
   },
   "scripts": {

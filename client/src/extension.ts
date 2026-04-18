@@ -153,6 +153,56 @@ const ruleHovers: Record<string, RuleHover> = {
     display: "Γ ⊢ A, Δ    Π, B ⊢ Σ\n──────────────────── llolli at h\nΓ, Π, A ⊸ B ⊢ Δ, Σ",
     latex: String.raw`\frac{\Gamma \vdash A, \Delta \qquad \Pi, B \vdash \Sigma}{\Gamma, \Pi, A \multimap B \vdash \Delta, \Sigma}\ \mathrm{llolli}`,
   },
+  intro: {
+    title: "Implication Introduction",
+    display: "A, Γ ⊢ B\n────────── intro h\nΓ ⊢ A ⟶ B",
+    latex: String.raw`\frac{A, \Gamma \vdash B}{\Gamma \vdash A \to B}\ \mathrm{intro}`,
+  },
+  assumption: {
+    title: "Assumption",
+    display: "A ∈ Γ\n────── assumption h\nΓ ⊢ A",
+    latex: String.raw`\frac{}{\,\Gamma \vdash A\,}\ \mathrm{assumption}`,
+  },
+  constructor: {
+    title: "Conjunction Introduction",
+    display: "Γ ⊢ A    Γ ⊢ B\n──────────────── constructor\nΓ ⊢ A ∧ B",
+    latex: String.raw`\frac{\Gamma \vdash A \qquad \Gamma \vdash B}{\Gamma \vdash A \land B}\ \mathrm{constructor}`,
+  },
+  left: {
+    title: "Left Rule",
+    display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ A\nHyp: h : A ∧ B gives h : A",
+    latex: String.raw`\frac{\Gamma \vdash A}{\Gamma \vdash A \lor B}\ \mathrm{left}`,
+  },
+  right: {
+    title: "Right Rule",
+    display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ B\nHyp: h : A ∧ B gives h : B",
+    latex: String.raw`\frac{\Gamma \vdash B}{\Gamma \vdash A \lor B}\ \mathrm{right}`,
+  },
+  cases: {
+    title: "Disjunction Elimination",
+    display: "Γ ⊢ A ∨ B    A, Γ ⊢ C    B, Γ ⊢ C\n──────────────────────────── cases at h as hp hq\nΓ ⊢ C",
+    latex: String.raw`\frac{\Gamma \vdash A \lor B \qquad A, \Gamma \vdash C \qquad B, \Gamma \vdash C}{\Gamma \vdash C}\ \mathrm{cases}`,
+  },
+  apply: {
+    title: "Implication Elimination",
+    display: "h : A ⟶ B    Goal: B\n──────────── apply h\nNew goal: A",
+    latex: String.raw`\frac{\Gamma \vdash A \to B \qquad \Gamma \vdash A}{\Gamma \vdash B}\ \mathrm{apply}`,
+  },
+  exfalso: {
+    title: "Bottom Goal",
+    display: "Goal: C\n──────── exfalso\nGoal: ⊥",
+    latex: String.raw`\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{exfalso}`,
+  },
+  absurd: {
+    title: "Bottom Elimination",
+    display: "h : ⊥\n────── absurd h\nΓ ⊢ C",
+    latex: String.raw`\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{absurd}`,
+  },
+  by_contra: {
+    title: "Classical Rule",
+    display: "(A ⟶ ⊥), Γ ⊢ ⊥\n──────────────── by_contra h\nΓ ⊢ A",
+    latex: String.raw`\frac{(\neg A), \Gamma \vdash \bot}{\Gamma \vdash A}\ \mathrm{by\_contra}`,
+  },
 };
 
 function ensureGoalsPanel(
@@ -292,19 +342,14 @@ async function requestGoals(editor: vscode.TextEditor): Promise<GoalsRequestResu
     }
     return {
       state: {
-        goals:
-          response.goals.length > 0
-            ? response.goals
-            : [
-                {
-                  id: `${response.code}:${response.reqId}`,
-                  hypotheses: [],
-                  target: response.message,
-                },
-              ],
+        goals: [],
         display: response.display
           ? { ...response.display, status: response.message }
-          : undefined,
+          : {
+              title: "",
+              status: response.message,
+              sections: [],
+            },
         tone: "error",
       },
       theoremStatuses,
@@ -526,6 +571,20 @@ export async function activate(context: vscode.ExtensionContext) {
       insertText: "cllp_gentzen",
       detail: "Classical linear logic, Gentzen sequent calculus",
       documentation: "Urzyczyn-style classical linear propositional calculus in sequent form.",
+      kind: vscode.CompletionItemKind.Reference,
+    },
+    {
+      label: "ipc_nd",
+      insertText: "ipc_nd",
+      detail: "Intuitionistic propositional calculus, natural deduction",
+      documentation: "IPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
+      kind: vscode.CompletionItemKind.Reference,
+    },
+    {
+      label: "cpc_nd",
+      insertText: "cpc_nd",
+      detail: "Classical propositional calculus, natural deduction",
+      documentation: "CPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
       kind: vscode.CompletionItemKind.Reference,
     },
   ];

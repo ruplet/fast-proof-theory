@@ -123,6 +123,14 @@ class GoalsPanel {
       .sectionTitle { font-weight: 600; margin: 8px 0 6px; }
       .hyp { font-family: var(--vscode-editor-font-family); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
       .target { font-family: var(--vscode-editor-font-family); font-size: 12px; line-height: 1.5; white-space: pre-wrap; padding-top: 4px; }
+      .formula { font-family: var(--vscode-editor-font-family); white-space: pre-wrap; word-break: break-word; }
+      .paren-0 { color: #d19a66; }
+      .paren-1 { color: #61afef; }
+      .paren-2 { color: #98c379; }
+      .paren-3 { color: #e06c75; }
+      .paren-4 { color: #c678dd; }
+      .paren-5 { color: #56b6c2; }
+      .op { color: var(--vscode-symbolIcon-operatorForeground, #e5c07b); font-weight: 600; }
       .statusError { margin-top: 6px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--vscode-inputValidation-errorBorder); background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground) 75%, transparent); color: var(--vscode-inputValidation-errorForeground); font-weight: 600; }
       .sequent { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: start; margin-top: 8px; }
       .sequentSide { min-width: 0; }
@@ -156,6 +164,33 @@ class GoalsPanel {
         }[c]));
       }
 
+      function renderFormulaHtml(input) {
+        const text = String(input ?? "");
+        let depth = 0;
+        let out = "";
+        const operatorChars = new Set(["⊗", "⊕", "⊸", "&", "⅋", "!", "?", "⊤", "⊥"]);
+        for (const ch of text) {
+          if (ch === "(") {
+            const cls = "paren-" + (depth % 6);
+            out += "<span class='" + cls + "'>(</span>";
+            depth += 1;
+            continue;
+          }
+          if (ch === ")") {
+            depth = Math.max(depth - 1, 0);
+            const cls = "paren-" + (depth % 6);
+            out += "<span class='" + cls + "'>)</span>";
+            continue;
+          }
+          if (operatorChars.has(ch)) {
+            out += "<span class='op'>" + esc(ch) + "</span>";
+            continue;
+          }
+          out += esc(ch);
+        }
+        return "<span class='formula'>" + out + "</span>";
+      }
+
       /** @param {ProofState} state */
       function render(state) {
         const goals = (state && state.goals) ? state.goals : [];
@@ -180,20 +215,26 @@ class GoalsPanel {
         const statusHtml = display && tone === "error"
           ? "<div class='" + statusClass + "'>" + esc(display.status) + "</div>"
           : "";
+        const hasMeaningfulDisplay = !!display && (
+          tone === "error" ||
+          !!display.title ||
+          !!display.status ||
+          visibleSections.length > 0
+        );
 
         if (!goals.length) {
-          root.className = display ? "" : "empty";
-          root.innerHTML = display
+          root.className = hasMeaningfulDisplay ? "" : "empty";
+          root.innerHTML = hasMeaningfulDisplay
             ? "<div class='goal " + (tone === "error" ? "goalError" : "") + "'>"
               + (tone === "error" ? "<div class='errorLabel'>Error</div>" : "")
               + (display.title ? "<div class='goalId'><b>" + esc(display.title) + "</b></div>" : "")
               + statusHtml
               + visibleSections.map(section =>
                   "<div class='sectionTitle'>" + esc(section.title) + "</div>"
-                  + "<ul>" + (section.body || []).map(item => "<li class='hyp'>" + esc(item) + "</li>").join("") + "</ul>"
+                  + "<ul>" + (section.body || []).map(item => "<li class='hyp'>" + renderFormulaHtml(item) + "</li>").join("") + "</ul>"
                 ).join("")
               + "</div>"
-            : "No goals.";
+            : "No proof state.";
           return;
         }
 
@@ -207,7 +248,7 @@ class GoalsPanel {
               \${tone === "error" ? \`<div class="\${statusClass}">\${esc(display.status)}</div>\` : ""}
               \${visibleSections.map(section => \`
                 <div class="sectionTitle">\${esc(section.title)}</div>
-                <ul>\${(section.body || []).map(item => "<li class='hyp'>" + esc(item) + "</li>").join("")}</ul>
+                <ul>\${(section.body || []).map(item => "<li class='hyp'>" + renderFormulaHtml(item) + "</li>").join("")}</ul>
               \`).join("")}
             </div>
           \`
@@ -217,7 +258,7 @@ class GoalsPanel {
           const leftTitle = isSequent ? "Left" : "Hypotheses";
           const rightTitle = isSequent ? "Right" : "Goal";
           const hypsHtml = hyps.length
-            ? "<ul>" + hyps.map(h => "<li class='hyp'><code>" + esc(h.name) + "</code> : " + esc(h.type) + "</li>").join("") + "</ul>"
+            ? "<ul>" + hyps.map(h => "<li class='hyp'><code>" + esc(h.name) + "</code> : " + renderFormulaHtml(h.type) + "</li>").join("") + "</ul>"
             : "<div class='empty'>" + (isSequent ? "Empty antecedent." : "No hypotheses.") + "</div>";
           const label = isSequent
             ? ("Sequent " + (i + 1))
@@ -235,13 +276,13 @@ class GoalsPanel {
                     <div class="turnstile">⊢</div>
                     <div class="sequentSide">
                       <div class="sectionTitle">\${rightTitle}</div>
-                      <div class="target">\${esc(g.target ?? "")}</div>
+                      <div class="target">\${renderFormulaHtml(g.target ?? "")}</div>
                     </div>
                   </div>\`
                 : \`<div class="sectionTitle">\${leftTitle}</div>
                     \${hypsHtml}
                     <div class="sectionTitle">\${rightTitle}</div>
-                    <div class="target">\${esc(g.target ?? "")}</div>\`}
+                    <div class="target">\${renderFormulaHtml(g.target ?? "")}</div>\`}
             </div>
           \`;
         }).join("");

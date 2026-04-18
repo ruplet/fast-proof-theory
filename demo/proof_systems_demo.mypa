@@ -5,31 +5,24 @@ rtensor ha
 ax ha
 ax hb
 
-theorem ipc_identity using IPC in ND : a ⊸ a := by
-rlolli h
-ax h
+theorem ipc_identity using IPC in ND : a -> a := by
+intro h
+assumption h
 
-theorem cpc_identity using CPC in ND : a ⊸ a := by
-rlolli h
-ax h
+theorem ipc_or_comm using IPC in ND : (p ∨ q) -> (q ∨ p) := by
+intro h
+cases at h as hp hq
+right
+assumption hp
+left
+assumption hq
 
-theorem cpc_to_ipc_double_negation using CPC in ND : ((a ⊸ ⊥) ⊸ ⊥) ⊸ a := by
-rlolli h
-translate IPC ND
-ax h
+theorem cpc_identity using CPC in ND : a -> a := by
+intro h
+assumption h
 
-theorem ipc_sequent_identity using IPC in GENTZEN : a ⊸ a := by
-rlolli h
-ax h
-
-theorem cpc_hilbert_identity using CPC in HILBERT : a ⊸ a := by
-rlolli h
-ax h
-
-theorem cpc_frege_identity using CPC in FREGE : a ⊸ a := by
-rlolli h
-ax h
-
-theorem stlc_identity using STLC in ND : a ⊸ a := by
-rlolli x
-ax x
+theorem cpc_double_negation using CPC in ND : ((a -> ⊥) -> ⊥) -> a := by
+intro h
+by_contra na
+apply h
+assumption na

@@ -72,6 +72,73 @@ private def helpDisplay? (name : String) : Option ProofDisplay :=
         }
       ]
     }
+  else if normalized = "ipc_nd" then
+    some {
+      title := s!"Help: {name}"
+      status := ""
+      sections := [
+        {
+          title := "System"
+          body := ["Intuitionistic propositional calculus in natural deduction."]
+        },
+        {
+          title := "Language"
+          body := [
+            "Formulas: A, B ::= p | A ∧ B | A ∨ B | A ⟶ B | ⊥",
+            "Proof state is displayed as hypotheses together with a single current target."
+          ]
+        },
+        {
+          title := "Tactics And Rules"
+          body := [
+            "intro h: implication introduction",
+            "assumption h: close goal from a matching hypothesis",
+            "constructor: conjunction introduction",
+            "left: left disjunction introduction",
+            "right: right disjunction introduction",
+            "left at h as hp: first conjunction elimination from hypothesis h",
+            "right at h as hq: second conjunction elimination from hypothesis h",
+            "cases at h as hp hq: disjunction elimination on hypothesis h",
+            "apply h: implication elimination using hypothesis h",
+            "exfalso: change the current target to ⊥",
+            "absurd h: close the goal from a hypothesis h : ⊥"
+          ]
+        },
+        {
+          title := "Checked Now"
+          body := ["intro", "assumption", "constructor", "left", "right", "cases", "apply", "exfalso", "absurd"]
+        }
+      ]
+    }
+  else if normalized = "cpc_nd" then
+    some {
+      title := s!"Help: {name}"
+      status := ""
+      sections := [
+        {
+          title := "System"
+          body := ["Classical propositional calculus in natural deduction."]
+        },
+        {
+          title := "Language"
+          body := [
+            "Formulas: A, B ::= p | A ∧ B | A ∨ B | A ⟶ B | ⊥",
+            "This extends IPC in ND with one classical tactic."
+          ]
+        },
+        {
+          title := "Tactics And Rules"
+          body := [
+            "All IPC ND tactics",
+            "by_contra h: classical reasoning by assuming h : A ⟶ ⊥ and proving ⊥"
+          ]
+        },
+        {
+          title := "Checked Now"
+          body := ["intro", "assumption", "constructor", "left", "right", "cases", "apply", "exfalso", "absurd", "by_contra"]
+        }
+      ]
+    }
   else
     some {
       title := s!"Help: {name}"
@@ -79,7 +146,7 @@ private def helpDisplay? (name : String) : Option ProofDisplay :=
       sections := [
         {
           title := "Known Systems"
-          body := ["cllp_gentzen"]
+          body := ["cllp_gentzen", "ipc_nd", "cpc_nd"]
         }
       ]
     }
