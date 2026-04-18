@@ -1,0 +1,7 @@
+{
+  "name": "fast-proof-theory",
+  "private": true,
+  "scripts": {
+    "build:myst-demo": "node myst/build.js"
+  }
+}

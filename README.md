@@ -130,6 +130,30 @@ These checks validate:
 - client compilation
 - Lean backend execution and goal output parsing
 
+## 5a) Build the static MyST demo
+
+The repo now includes a local MyST-style tutorial builder under `myst/`, with tutorial content under `myst/demo/`.
+It uses the `:::{mypa}` directive syntax, verifies each embedded MyPA block with the Lean backend, precomputes proof states for every cursor position, and emits a read-only browser tutorial.
+
+Build the cache exporter first:
+
+```bash
+lake build mypa-export-cache
+```
+
+Then build the tutorial:
+
+```bash
+npm run build:myst-demo
+```
+
+Generated output:
+
+- `build/myst/tutorial.html`
+- `build/myst/cache/*.json`
+
+Open `build/myst/tutorial.html` in a browser and click inside a code block to inspect cached proof states.
+
 ## 6) If Goals panel shows \"No goals\"
 
 Run:

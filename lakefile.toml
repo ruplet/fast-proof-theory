@@ -33,3 +33,7 @@ root = "MypaCheckMain"
 [[lean_exe]]
 name = "mypa-export"
 root = "MypaExportMain"
+
+[[lean_exe]]
+name = "mypa-export-cache"
+root = "MypaExportCacheMain"
