@@ -1,4 +1,4 @@
 import FastProofTheory
 
 def main : IO Unit :=
-  IO.println s!"Hello, {hello}!"
+  IO.println "fast-proof-theory"

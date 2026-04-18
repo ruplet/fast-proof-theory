@@ -1,108 +1,29 @@
-theorem distrib_left
-hyp h : a ⊗ (b ⊕ c)
-goal (a ⊗ b) ⊕ (a ⊗ c)
-destruct h
-cases h_right1
-left
-split h_left1
-init h_left1
-init h_right1_left1
-right
-split h_left1
-init
-init
+-- Urzyczyn-style classical linear sequent calculus surface, using Paoli-style rule names.
+-- The currently checked subset in the engine covers `ax`, `rlolli`, `rtensor`, and `rwith`.
 
-theorem distrib_right
-hyp h : (a ⊗ b) ⊕ (a ⊗ c)
-goal a ⊗ (b ⊕ c)
-cases h
-destruct h_left1
-split h_left1_left1
-init h_left1_left1
-left
-init h_left1_right1
-destruct h_right1
-split h_right1_left1
-init
-right
-init
+def axiom_id using LL in GENTZEN : a ⊸ a := by
+rlolli h
+ax h
 
-theorem currying
-hyp h : a ⊸ b ⊸ c
-goal (a ⊗ b) ⊸ c
-intro
-destruct h2
-assume hp : (b ⊸ c) h h2_left1
-apply h
-init
-apply hp
-init
+def tensor_right using LL in GENTZEN : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
 
-theorem currying_destruct
-hyp h : a ⊸ b ⊸ c
-goal (a ⊗ b) ⊸ c
-intro
-destruct h2
-destruct h h2_left1
-init
-apply h_res1
-init
+def with_right using LL in GENTZEN : a ⊸ (a & a) := by
+rlolli h
+rwith
+ax h
+ax h
 
-
-theorem with_tensor
-hyp h : (a & b) ⊗ (a & b)
-goal a ⊗ b
-destruct h
-destruct h_left1 left
-destruct h_right1 right
-split h_left1_left1
-init
-init
-
-theorem tensor_assoc
-hyp h : a ⊗ (b ⊗ c)
-goal (a ⊗ b) ⊗ c
-destruct h
-destruct h_right1
-split h_left1 h_right1_left1
-split h_left1
-init
-init
-init
-
-theorem tauto
-goal ⊤
-trivial
-
-theorem exfalso
-hyp h : ⊥
-goal a
-init h
-
-theorem bang_source
-hyp h : !a
-goal a ⊗ !a
-bang h
-split h_derelict1
-init
-derelict
-bang h
-init
-
-theorem sum_cancel
-hyp h1 : a ⊕ b
-hyp h2 : b ⊸ ⊥
-goal a
-cases h1
-init
-destruct h2 h1_right1
-init
-init h2_res1
-
-theorem tensor_with
-hyp h : a ⊗ b
-goal a & b
-destruct h
-split
-init
-init
+def tensor_nested using LL in GENTZEN : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
+rlolli ha
+rlolli hb
+rlolli hc
+rtensor ha
+ax ha
+rtensor hb
+ax hb
+ax hc

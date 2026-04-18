@@ -1,5 +1,6 @@
 name = "fast-proof-theory"
 version = "0.1.0"
+srcDir = "lean_backend"
 defaultTargets = ["fast-proof-theory"]
 
 [[lean_lib]]
@@ -8,3 +9,11 @@ name = "FastProofTheory"
 [[lean_exe]]
 name = "fast-proof-theory"
 root = "Main"
+
+[[lean_exe]]
+name = "mypa-lean-kernel"
+root = "LeanKernelMain"
+
+[[lean_exe]]
+name = "mypa-check"
+root = "MypaCheckMain"

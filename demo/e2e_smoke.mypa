@@ -1,4 +1,5 @@
-theorem smoke
-hyp h : a
-goal a
-init h
+#help cllp_gentzen
+
+def smoke using LL in GENTZEN : a ⊸ a := by
+rlolli h
+ax h

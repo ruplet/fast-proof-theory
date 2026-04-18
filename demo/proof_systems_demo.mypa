@@ -1,43 +1,35 @@
-theorem ll_tensor_intro using LL in GENTZEN
-hyp ha : a
-hyp hb : b
-goal a ⊗ b
-split ha
-init ha
-init hb
+def ll_tensor_intro using LL in GENTZEN : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
 
-theorem ipc_identity using IPC in ND
-hyp h : a
-goal a
-init h
+theorem ipc_identity using IPC in ND : a ⊸ a := by
+rlolli h
+ax h
 
-theorem cpc_identity using CPC in ND
-hyp h : a
-goal a
-init h
+theorem cpc_identity using CPC in ND : a ⊸ a := by
+rlolli h
+ax h
 
-theorem cpc_to_ipc_double_negation using CPC in ND
-hyp h : (a ⊸ ⊥) ⊸ ⊥
-goal a
+theorem cpc_to_ipc_double_negation using CPC in ND : ((a ⊸ ⊥) ⊸ ⊥) ⊸ a := by
+rlolli h
 translate IPC ND
-init h
+ax h
 
-theorem ipc_sequent_identity using IPC in GENTZEN
-hyp h : a
-goal a
-init h
+theorem ipc_sequent_identity using IPC in GENTZEN : a ⊸ a := by
+rlolli h
+ax h
 
-theorem cpc_hilbert_identity using CPC in HILBERT
-hyp h : a
-goal a
-init h
+theorem cpc_hilbert_identity using CPC in HILBERT : a ⊸ a := by
+rlolli h
+ax h
 
-theorem cpc_frege_identity using CPC in FREGE
-hyp h : a
-goal a
-init h
+theorem cpc_frege_identity using CPC in FREGE : a ⊸ a := by
+rlolli h
+ax h
 
-theorem stlc_identity using STLC in ND
-goal a ⊸ a
-intro x
-init x
+theorem stlc_identity using STLC in ND : a ⊸ a := by
+rlolli x
+ax x

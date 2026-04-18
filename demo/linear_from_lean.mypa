@@ -1,0 +1,144 @@
+-- Port of examples from lean_backend/FastProofTheory/ProofSystems/Linear.lean
+-- Active theorems below are in the currently checked MyPA fragment.
+-- The commented declarations are the remaining Lean examples, pending more sequent rules.
+
+def tensor_right_from_lean using LL in GENTZEN : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
+
+def tensor_nested_from_lean using LL in GENTZEN : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
+rlolli ha
+rlolli hb
+rlolli hc
+rtensor ha
+ax ha
+rtensor hb
+ax hb
+ax hc
+
+def tensorPlusDistrib using LL in GENTZEN : ((a ⊗ (b ⊕ c)) ⊸ ((a ⊗ b) ⊕ (a ⊗ c))) & (((a ⊗ b) ⊕ (a ⊗ c)) ⊸ (a ⊗ (b ⊕ c))) := by
+rwith
+rlolli h
+ltensor at h as ha hbc
+lplus at hbc as hb hc
+rplusl
+rtensor ha
+ax ha
+ax hb
+rplusr
+rtensor ha
+ax ha
+ax hc
+rlolli h
+lplus at h as hab hac
+ltensor at hab as ha hb
+rtensor ha
+ax ha
+rplusl
+ax hb
+ltensor at hac as ha hc
+rtensor ha
+ax ha
+rplusr
+ax hc
+
+def plusTensorDistrib using LL in GENTZEN : (((a ⊕ b) ⊗ c) ⊸ ((a ⊗ c) ⊕ (b ⊗ c))) & (((a ⊗ c) ⊕ (b ⊗ c)) ⊸ ((a ⊕ b) ⊗ c)) := by
+rwith
+rlolli h
+ltensor at h as hab hc
+lplus at hab as ha hb
+rplusl
+rtensor ha
+ax ha
+ax hc
+rplusr
+rtensor hb
+ax hb
+ax hc
+rlolli h
+lplus at h as hac hbc
+ltensor at hac as ha hc
+rtensor ha
+rplusl
+ax ha
+ax hc
+ltensor at hbc as hb hc
+rtensor hb
+rplusr
+ax hb
+ax hc
+
+def linearImpWithDistrib using LL in GENTZEN : ((a ⊸ (b & c)) ⊸ ((a ⊸ b) & (a ⊸ c))) & (((a ⊸ b) & (a ⊸ c)) ⊸ (a ⊸ (b & c))) := by
+rwith
+rlolli h
+rwith
+rlolli ha
+llolli at h using ha as hbc
+ax ha
+lleft at hbc as hb
+ax hb
+rlolli ha
+llolli at h using ha as hbc
+ax ha
+lright at hbc as hc
+ax hc
+rlolli h
+rlolli ha
+rwith
+lleft at h as hab
+llolli at hab using ha as hb
+ax ha
+ax hb
+lright at h as hac
+llolli at hac using ha as hc
+ax ha
+ax hc
+
+def plusLinearImpDistrib using LL in GENTZEN : (((a ⊕ b) ⊸ c) ⊸ ((a ⊸ c) & (b ⊸ c))) & (((a ⊸ c) & (b ⊸ c)) ⊸ ((a ⊕ b) ⊸ c)) := by
+rwith
+rlolli h
+rwith
+rlolli ha
+llolli at h using ha as hc
+rplusl
+ax ha
+ax hc
+rlolli hb
+llolli at h using hb as hc
+rplusr
+ax hb
+ax hc
+rlolli h
+rlolli hab
+lplus at hab as ha hb
+lleft at h as hac
+llolli at hac using ha as hc
+ax ha
+ax hc
+lright at h as hbc
+llolli at hbc using hb as hc
+ax hb
+ax hc
+
+def bangWithDistrib using LL! in GENTZEN : (!(a & b) ⊸ (!a ⊗ !b)) & ((!a ⊗ !b) ⊸ !(a & b)) := by
+rwith
+rlolli h
+lbang at h
+rtensor
+rbang
+lleft at h as ha
+ax ha
+rbang
+lright at h as hb
+ax hb
+rlolli h
+ltensor at h as ha hb
+lbang at ha
+lbang at hb
+rbang
+rwith
+ax ha
+ax hb

@@ -1,47 +1,54 @@
 # fast-proof-theory
 
-Manual build instructions for the current architecture:
+Current top-level split:
 
 - `client/` = VSCode extension (LSP client)
-- `lsp_server/` = Node Language Server
-- `kernel/` = C++ prover kernel
+- `lsp_server/` = thin Node LSP adapter
+- `lean_backend/` = Lean backend, including document engine, proof engine, tactics, and kernel
+
+The intended semantic boundary is:
+
+- `client/` owns UI only
+- `lsp_server/` owns transport only
+- `lean_backend/` owns all logic semantics
+
+Inside `lean_backend/`, the linear-logic code is split so proof search can evolve independently from kernel checking:
+
+- `FastProofTheory/Linear/Engine.lean` = snapshots, parsing, proof-state engine
+- `FastProofTheory/Linear/Kernel.lean` = tiny certificate checker boundary
+- `FastProofTheory/Linear/Tactics/Interface.lean` = tactic interface
+- `FastProofTheory/Linear/Tactics/Search.lean` = proof-search tactic entry point
+
+The current linear backend supports one kernel with profile restrictions:
+
+- `LL` = linear logic without exponentials
+- `LL!` / `LL EXP` = linear logic with exponentials
 
 ## Proof Profile Syntax
 
-Theorem headers now support selecting logic and deduction calculus independently:
+For the linear backend, theorem headers currently support:
 
 ```text
-theorem <Name> using <LOGIC> in <CALCULUS>
+theorem <Name> using <PROFILE>
 ```
 
 Examples:
 
-- `theorem T using IPC in ND`
-- `theorem T using CPC in GENTZEN`
-- `theorem T using CPC in HILBERT`
-- `theorem T using CPC in FREGE`
+- `theorem T using LL`
+- `theorem T using LL!`
+- `theorem T using LL EXP`
 
-Single-token forms (`LL`, `IPC`, `CPC`, `STLC`, `ND`, `GENTZEN`, `HILBERT`, `FREGE`) map via enum defaults.
-
-## 1) Build C++ kernel
+## 1) Build Lean backend
 
 From repo root:
 
 ```bash
-mkdir -p kernel/build
-g++ -std=c++17 -O2 -o kernel/build/mypa-kernel kernel/src/main.cpp
-```
-
-Alternative with CMake (if available):
-
-```bash
-cmake -S kernel -B kernel/build
-cmake --build kernel/build
+lake build mypa-lean-kernel
 ```
 
 Expected artifact:
 
-- `kernel/build/mypa-kernel`
+- `.lake/build/bin/mypa-lean-kernel`
 
 ## 2) Install and build LSP server
 
@@ -92,7 +99,7 @@ In that window:
 Optional overrides:
 
 - VSCode setting `mypa.lspServerPath`: path to `server.js` (default resolves to `../lsp_server/out/server.js` from `client/`).
-- Env var `PROVER_KERNEL_PATH`: path to kernel binary (default resolves to `../kernel/build/mypa-kernel` from `lsp_server/out/`).
+- Env var `PROVER_KERNEL_PATH`: path to Lean backend binary (default resolves to `../.lake/build/bin/mypa-lean-kernel` from `lsp_server/out/`).
 
 If `code` CLI is unavailable:
 
@@ -102,10 +109,12 @@ If `code` CLI is unavailable:
 
 ## 5) Quick sanity checks
 
-Kernel directly:
+Lean backend directly:
 
 ```bash
-cat /tmp/sample.ir | kernel/build/mypa-kernel
+cat <<'EOF' | ./.lake/build/bin/mypa-lean-kernel
+{"jsonrpc":"2.0","id":"smoke","method":"checkDocument","params":{"uri":"file:///demo/test.mypa","version":1,"text":"theorem Demo using LL\nhyp h1 : A\ngoal A\naxiom\nend\n","cursor":{"line":3,"character":0}}}
+EOF
 ```
 
 TypeScript compile checks:
@@ -115,33 +124,21 @@ cd lsp_server && npm run compile
 cd ../client && npm run compile
 ```
 
-Automated smoke checks (no VSCode required):
-
-```bash
-./scripts/e2e_kernel_pipeline.sh
-./scripts/e2e_lsp_kernel.sh
-```
-
-Expected output:
-
-- `PASS: kernel pipeline smoke check`
-- `PASS: LSP logic + kernel smoke check`
-
 These checks validate:
 
-- parser/IR generation from `.mypa` input,
-- IR/protobuf encode-decode validation path,
-- kernel execution and goal output parsing.
+- LSP transport compilation
+- client compilation
+- Lean backend execution and goal output parsing
 
 ## 6) If Goals panel shows \"No goals\"
 
 Run:
 
 ```bash
-./scripts/e2e_kernel_pipeline.sh
+./.lake/build/bin/mypa-lean-kernel < /tmp/request.json
 ```
 
-If this fails, kernel execution is broken/misconfigured.
+If this fails, Lean backend execution is broken or misconfigured.
 
 Also note: the LSP `mypa/goals` path now surfaces kernel diagnostics as synthetic goals (instead of silently returning an empty goals list), so launch/runtime errors should appear in the Goals panel.
 

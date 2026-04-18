@@ -178,5 +178,14 @@ export function parseKernelResponse(raw: string): KernelCheckResponse {
     protocolError(`Unknown kernel output line: ${line}`);
   }
 
-  return { diagnostics, goals };
+  return {
+    diagnostics,
+    goals,
+    display: {
+      title: "Legacy Kernel Wire",
+      status: "Deprecated response shape",
+      sections: [],
+    },
+    theoremStatuses: [],
+  };
 }

@@ -1,9 +1,15 @@
 import * as path from "path";
 import { spawnSync } from "child_process";
-import { DocumentIR, KernelCheckResponse } from "./types";
+import { CheckDocumentParams, KernelCheckResponse } from "./backendProtocol";
+
+const emptyDisplay = {
+  title: "Lean Backend",
+  status: "No proof state available.",
+  sections: [],
+};
 
 function defaultKernelPath(): string {
-  return path.resolve(__dirname, "..", "..", "kernel", "build", "mypa-kernel");
+  return path.resolve(__dirname, "..", "..", ".lake", "build", "bin", "mypa-lean-kernel");
 }
 
 function protocolError(message: string): KernelCheckResponse {
@@ -18,19 +24,21 @@ function protocolError(message: string): KernelCheckResponse {
       },
     ],
     goals: [],
+    display: emptyDisplay,
+    theoremStatuses: [],
   };
 }
 
 export class KernelClient {
   constructor(private readonly kernelPath = process.env.PROVER_KERNEL_PATH || defaultKernelPath()) {}
 
-  checkDocument(document: DocumentIR): KernelCheckResponse {
+  checkDocument(params: CheckDocumentParams): KernelCheckResponse {
     const requestId = `req:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const input = JSON.stringify({
       jsonrpc: "2.0",
       id: requestId,
       method: "checkDocument",
-      params: { document },
+      params,
     }) + "\n";
 
     const result = spawnSync(this.kernelPath, {
@@ -54,6 +62,8 @@ export class KernelClient {
           },
         ],
         goals: [],
+        display: emptyDisplay,
+        theoremStatuses: [],
       };
     }
 
@@ -69,6 +79,8 @@ export class KernelClient {
           },
         ],
         goals: [],
+        display: emptyDisplay,
+        theoremStatuses: [],
       };
     }
 
@@ -97,17 +109,30 @@ export class KernelClient {
           },
         ],
         goals: [],
+        display: emptyDisplay,
+        theoremStatuses: [],
       };
     }
 
     const rpcResult = payload.result;
-    if (!rpcResult || !Array.isArray(rpcResult.diagnostics) || !Array.isArray(rpcResult.goals)) {
-      return protocolError("Kernel result is missing diagnostics/goals arrays");
+    if (
+      !rpcResult ||
+      !Array.isArray(rpcResult.diagnostics) ||
+      !Array.isArray(rpcResult.goals) ||
+      !Array.isArray(rpcResult.theoremStatuses) ||
+      !rpcResult.display ||
+      typeof rpcResult.display.title !== "string" ||
+      typeof rpcResult.display.status !== "string" ||
+      !Array.isArray(rpcResult.display.sections)
+    ) {
+      return protocolError("Kernel result is missing diagnostics/goals/display payload");
     }
 
     return {
       diagnostics: rpcResult.diagnostics,
       goals: rpcResult.goals,
+      display: rpcResult.display,
+      theoremStatuses: rpcResult.theoremStatuses,
     };
   }
 }

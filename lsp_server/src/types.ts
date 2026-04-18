@@ -41,6 +41,12 @@ export type DocumentIR = {
 
 export type GoalHypothesis = { name: string; type: string };
 export type GoalView = { id: string; hypotheses: GoalHypothesis[]; target: string };
+export type TheoremStatus = { name: string; line: number; verified: boolean };
+export type ProofDisplay = {
+  title: string;
+  status: string;
+  sections: Array<{ title: string; body: string[] }>;
+};
 
 export type KernelDiagnostic = {
   range: Range;
@@ -53,6 +59,8 @@ export type KernelDiagnostic = {
 export type KernelCheckResponse = {
   diagnostics: KernelDiagnostic[];
   goals: GoalView[];
+  display: ProofDisplay;
+  theoremStatuses: TheoremStatus[];
 };
 
 export type GoalsResponse =
@@ -61,12 +69,16 @@ export type GoalsResponse =
       reqId: string;
       goals: GoalView[];
       diagnostics: KernelDiagnostic[];
+      display: ProofDisplay;
+      theoremStatuses: TheoremStatus[];
     }
   | {
       kind: "no_goals";
       reqId: string;
       reason: string;
       diagnostics: KernelDiagnostic[];
+      display: ProofDisplay;
+      theoremStatuses: TheoremStatus[];
     }
   | {
       kind: "error";
@@ -75,4 +87,6 @@ export type GoalsResponse =
       message: string;
       diagnostics: KernelDiagnostic[];
       goals: GoalView[];
+      display: ProofDisplay;
+      theoremStatuses: TheoremStatus[];
     };
