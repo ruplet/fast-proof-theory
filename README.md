@@ -1,5 +1,22 @@
 # fast-proof-theory
 
+A proof assistant for multiple weird logics. We allow to choose between reasoning in Intuitionistic Propositional Logic,
+Classical Propositional Logic, variants of Linear Logic, and in pure Calculus of Constructions treated as a logic.
+We also sometimes provide multiple versions of the same logic - e.g. adding it in natural deduction or in gentzen sequent
+calculus style.
+
+In this project, we have a few submodules:
+- VSCode client, that provides a Lean-like interface for the logics, e.g. to interactively view proof state when
+proving gentzen-style in linear logic.
+- LSP server that communicates between VSCode and our backend
+- backend for the proof checker written in Lean4
+- actual deep embeddings of the logics we are working it, to prove theorems about correctness of the logics we implement,
+    e.g. if we want to operate in gentzen style deduction for linear logic, then we are interested in showing that
+    soundness and completeness theorems hold for our underlying theory
+- an export module that exports from our proof assistant to Lean4-checkable program to verify correctness
+
+
+## GPT-generated readme:
 Current top-level split:
 
 - `client/` = VSCode extension (LSP client)
