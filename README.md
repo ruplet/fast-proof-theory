@@ -14,6 +14,7 @@ proving gentzen-style in linear logic.
     e.g. if we want to operate in gentzen style deduction for linear logic, then we are interested in showing that
     soundness and completeness theorems hold for our underlying theory
 - an export module that exports from our proof assistant to Lean4-checkable program to verify correctness
+- integration with MyST Markdown system to generate nice documents with code in our assistants embedded
 
 
 ## GPT-generated readme:
