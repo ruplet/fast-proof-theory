@@ -1,4 +1,4 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
 
 namespace FastProofTheory.Linear
 
@@ -28,6 +28,7 @@ inductive RuleSet where
   | llBang
   | ipc
   | cpc
+  | systemF
 deriving BEq, DecidableEq, Inhabited, Repr
 
 inductive Calculus where
@@ -43,6 +44,7 @@ inductive Language where
   | cpcFull
   | ll
   | llBang
+  | systemF
 deriving BEq, DecidableEq, Inhabited, Repr
 
 structure Profile where
@@ -72,12 +74,16 @@ def Profile.cpcNDPropositional : Profile :=
 def Profile.cpcNDFull : Profile :=
   { rules := .cpc, calculus := .nd, language := .cpcFull }
 
+def Profile.systemFND : Profile :=
+  { rules := .systemF, calculus := .nd, language := .systemF }
+
 def Profile.logicName (profile : Profile) : String :=
   match profile.rules with
   | .ll => "LL"
   | .llBang => "LL!"
   | .ipc => "IPC"
   | .cpc => "CPC"
+  | .systemF => "SYSTEM_F"
 
 def Profile.calculusName (profile : Profile) : String :=
   match profile.calculus with
@@ -92,6 +98,7 @@ def Language.displayName : Language → String
   | .cpcFull => "CPC_FULL"
   | .ll => "LL"
   | .llBang => "LL!"
+  | .systemF => "SYSTEM_F"
 
 def Profile.languageName (profile : Profile) : String :=
   profile.language.displayName
@@ -114,6 +121,9 @@ def Profile.isIPC (profile : Profile) : Bool :=
 def Profile.isCPC (profile : Profile) : Bool :=
   profile.rules = .cpc
 
+def Profile.isSystemF (profile : Profile) : Bool :=
+  profile.rules = .systemF
+
 def Profile.hasValidConfiguration (profile : Profile) : Bool :=
   match profile.rules, profile.calculus, profile.language with
   | .ll, .gentzen, .ll => true
@@ -123,6 +133,7 @@ def Profile.hasValidConfiguration (profile : Profile) : Bool :=
   | .ipc, .nd, .ipcFull => true
   | .cpc, .nd, .cpcPropositional => true
   | .cpc, .nd, .cpcFull => true
+  | .systemF, .nd, .systemF => true
   | _, _, _ => false
 
 def Profile.allowsRule (profile : Profile) (rule : RuleKind) : Bool :=
@@ -204,6 +215,10 @@ def parseSupportedProfileTokens? (tokens : List String) : Option Profile :=
   | "IPC" :: "IN" :: "ND" :: "WITH" :: "IPC_FULL" :: [] => some .ipcNDFull
   | "CPC" :: "IN" :: "ND" :: "WITH" :: "CPC_PROP" :: [] => some .cpcNDPropositional
   | "CPC" :: "IN" :: "ND" :: "WITH" :: "CPC_FULL" :: [] => some .cpcNDFull
+  | "SYSTEM_F" :: "IN" :: "ND" :: [] => some .systemFND
+  | "SYSTEMF" :: "IN" :: "ND" :: [] => some .systemFND
+  | "SYSTEM_F" :: "IN" :: "ND" :: "WITH" :: "SYSTEM_F" :: [] => some .systemFND
+  | "SYSTEMF" :: "IN" :: "ND" :: "WITH" :: "SYSTEMF" :: [] => some .systemFND
   | _ => none
 
 def parseProfileTokens (tokens : List String) : Profile :=

@@ -26,3 +26,30 @@ intro h
 by_contra na
 apply h
 assumption na
+
+theorem systemf_identity using SYSTEM_F in ND : forall p. p -> p := by
+type_intro p
+intro x
+assumption x
+
+theorem problem34_there using SYSTEM_F in ND : ((forall r. ((forall q. q -> r) -> r)) -> (forall p. (((forall r. ((forall q. q -> r) -> r)) -> p) -> p))) := by
+intro z
+type_intro p
+intro y
+apply y
+assumption z
+
+theorem problem34_back using SYSTEM_F in ND : (forall p. (((forall r. ((forall q. q -> r) -> r)) -> p) -> p)) -> (forall r. ((forall q. q -> r) -> r)) := by
+intro x
+type_apply x (forall r. ((forall q. q -> r) -> r))
+intro u
+assumption u
+
+theorem problem34_noncanonical using SYSTEM_F in ND : forall p. (((forall r. ((forall q. q -> r) -> r)) -> p) -> p) := by
+type_intro p
+intro y
+apply y
+type_intro r
+intro u
+type_apply u ((forall r. ((forall q. q -> r) -> r)) -> p)
+assumption y

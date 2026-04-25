@@ -1,10 +1,10 @@
-import FastProofTheory.Logic.IPC.PropositionalND
-import FastProofTheory.Logic.IPC.Kripke
+import Logic.IPC.PropositionalND
+import Logic.IPC.Kripke
 
-namespace FastProofTheory.Logic.IPC
+namespace Logic.IPC
 
-open FastProofTheory.Logic.IPC.Kripke
-open FastProofTheory.Logic.IPC.PropositionalND
+open Logic.IPC.Kripke
+open Logic.IPC.PropositionalND
 
 namespace PropositionalND
 
@@ -205,4 +205,4 @@ theorem excluded_middle_not_provable :
 
 end Countermodels
 
-end FastProofTheory.Logic.IPC
+end Logic.IPC

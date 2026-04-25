@@ -1,9 +1,9 @@
-import FastProofTheory.Logic.IPC.Language
+import Logic.IPC.Language
 
-namespace FastProofTheory.Logic.IPC.Kripke
+namespace Logic.IPC.Kripke
 
 open Rules
-open FastProofTheory.Logic.IPC
+open Logic.IPC
 
 universe u
 
@@ -47,4 +47,4 @@ def ValidOnFrame (F : Frame) (A : WellFormed fragment) : Prop :=
       let M : Model := { toFrame := F, val := val, mono := mono }
       GloballyValid M A
 
-end FastProofTheory.Logic.IPC.Kripke
+end Logic.IPC.Kripke

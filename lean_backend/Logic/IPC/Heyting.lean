@@ -1,9 +1,9 @@
-import FastProofTheory.Logic.IPC.Language
+import Logic.IPC.Language
 
-namespace FastProofTheory.Logic.IPC.Heyting
+namespace Logic.IPC.Heyting
 
 open Rules
-open FastProofTheory.Logic.IPC
+open Logic.IPC
 
 universe u
 
@@ -38,4 +38,4 @@ def Entails (H : Algebra) (Γ : List (WellFormed fragment)) (A : WellFormed frag
 def TheoryValid (Hs : List Algebra) (A : WellFormed fragment) : Prop :=
   ∀ H ∈ Hs, Valid H A
 
-end FastProofTheory.Logic.IPC.Heyting
+end Logic.IPC.Heyting

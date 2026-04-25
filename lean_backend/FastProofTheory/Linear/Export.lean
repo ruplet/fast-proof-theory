@@ -423,9 +423,9 @@ private def renderExport (theoremName : String) (target : Formula) (proof : Proo
     s!"def {atomIdent atom} : Formula := atom {reprStr atom}"
   let lines :=
     [
-      "import FastProofTheoryLogic",
+      "import Logic",
       "",
-      "open FastProofTheory.Logic.IPC.PropositionalND",
+      "open Logic.IPC.PropositionalND",
       "",
       "namespace FastProofTheory.Exported",
       ""

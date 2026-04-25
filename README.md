@@ -5,32 +5,31 @@ Classical Propositional Logic, variants of Linear Logic, and in pure Calculus of
 We also sometimes provide multiple versions of the same logic - e.g. adding it in natural deduction or in gentzen sequent
 calculus style.
 
-In this project, we have a few submodules:
-- VSCode client, that provides a Lean-like interface for the logics, e.g. to interactively view proof state when
-proving gentzen-style in linear logic.
-- LSP server that communicates between VSCode and our backend
-- backend for the proof checker written in Lean4
-- actual deep embeddings of the logics we are working it, to prove theorems about correctness of the logics we implement,
-    e.g. if we want to operate in gentzen style deduction for linear logic, then we are interested in showing that
-    soundness and completeness theorems hold for our underlying theory
-- an export module that exports from our proof assistant to Lean4-checkable program to verify correctness
-- integration with MyST Markdown system to generate nice documents with code in our assistants embedded
+In this project, we have a few components:
 
+- `client/`: VSCode client, which provides a Lean-like interface for the logics, e.g. to interactively view proof state when proving Gentzen-style in linear logic.
+- `lsp_server/`: LSP server that communicates between VSCode and the Lean backend.
+- `lean_backend/FastProofTheory/`: backend for the proof checker written in Lean 4, including the document engine, proof engine, tactics, kernel boundary, and exports.
+- `lean_backend/Logic/`: a separate top-level Lean 4 library containing the actual deep embeddings of the logics we are working in, used to prove theorems about correctness of the logics we implement. For example, if we want to operate in Gentzen-style deduction for linear logic, then we are interested in showing that soundness and completeness theorems hold for our underlying theory.
+- `FastProofTheory.Linear.Export`: export module that exports from our proof assistant to a Lean 4-checkable program to verify correctness.
+- `myst/`: integration with the MyST Markdown system to generate documents with code in our assistants embedded.
 
-## GPT-generated readme:
-Current top-level split:
+The intended dependency boundary is:
 
-- `client/` = VSCode extension (LSP client)
-- `lsp_server/` = thin Node LSP adapter
-- `lean_backend/` = Lean backend, including document engine, proof engine, tactics, and kernel
+- `client/` owns UI only.
+- `lsp_server/` owns transport only.
+- `lean_backend/Logic/` owns reusable logical syntax, deep embeddings, semantics, and metatheory. It is exposed as the top-level Lean library `Logic`.
+- `lean_backend/FastProofTheory/` owns proof-assistant implementation details and depends on `Logic`, not the other way around. It is exposed as the top-level Lean library `FastProofTheory`.
 
-The intended semantic boundary is:
+The long-term architecture is a uniform proof-kernel architecture: every logic is
+defined by its judgments and Gentzen-style rules, and tactic/proof-search code
+must produce certificates checked by the same small trusted boundary. Linear
+logic is not intended to be a separate trusted proof engine; the current
+`FastProofTheory/Linear/` code is the prototype implementation that should be
+refactored into the uniform `Core` layer described in
+[`docs/uniform-proof-kernel.md`](docs/uniform-proof-kernel.md).
 
-- `client/` owns UI only
-- `lsp_server/` owns transport only
-- `lean_backend/` owns all logic semantics
-
-Inside `lean_backend/`, the linear-logic code is split so proof search can evolve independently from kernel checking:
+Inside `lean_backend/FastProofTheory/`, the current linear-logic prototype is split so proof search can evolve independently from kernel checking:
 
 - `FastProofTheory/Linear/Engine.lean` = snapshots, parsing, proof-state engine
 - `FastProofTheory/Linear/Kernel.lean` = tiny certificate checker boundary

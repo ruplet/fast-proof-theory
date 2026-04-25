@@ -1,6 +1,6 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
 
-namespace FastProofTheory.Logic.IPC
+namespace Logic.IPC
 
 open Rules
 
@@ -37,4 +37,4 @@ abbrev WellFormed (fragment : Fragment) := { A : Formula // A.InFragment fragmen
 def atom (name : String) : WellFormed fragment :=
   ⟨.atom name, by cases fragment <;> trivial⟩
 
-end FastProofTheory.Logic.IPC
+end Logic.IPC

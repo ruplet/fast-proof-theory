@@ -1,9 +1,9 @@
-import FastProofTheory.Logic.IPC.Language
+import Logic.IPC.Language
 
-namespace FastProofTheory.Logic.IPC.PropositionalND
+namespace Logic.IPC.PropositionalND
 
 open Rules
-open FastProofTheory.Logic.IPC
+open Logic.IPC
 
 abbrev Formula := WellFormed .full
 abbrev Context := List Formula
@@ -68,4 +68,4 @@ inductive Derivation : Context → Formula → Type where
 
 abbrev Theorem (A : Formula) : Prop := Nonempty (Derivation [] A)
 
-end FastProofTheory.Logic.IPC.PropositionalND
+end Logic.IPC.PropositionalND

@@ -1,4 +1,4 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
 import FastProofTheory.Linear.Profile
 
 namespace FastProofTheory.Linear.Syntax
@@ -342,6 +342,7 @@ partial def elaborateFormula (profile : Profile) : SurfaceFormula → Except Str
       match profile.language with
       | .ll | .llBang => pure .bottom
       | .ipcImplicational | .ipcPropositional | .ipcFull | .cpcPropositional | .cpcFull => pure .bot
+      | .systemF => connectiveNotAllowed profile "⊥"
   | .imp a b =>
       match profile.language with
       | .ipcImplicational | .ipcFull | .cpcFull =>

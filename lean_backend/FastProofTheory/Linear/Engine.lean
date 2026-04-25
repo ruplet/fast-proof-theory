@@ -1,6 +1,9 @@
 import FastProofTheory.Linear.Profile
 import FastProofTheory.Linear.Kernel
 import FastProofTheory.Linear.Syntax
+import FastProofTheory.ND.Kernel
+import FastProofTheory.SystemF.Kernel
+import FastProofTheory.SystemF.Syntax
 
 namespace FastProofTheory.Linear
 
@@ -130,7 +133,7 @@ def isTacticKeyword (word : String) : Bool :=
     "rwith", "rtensor", "rplusl", "rplusr", "rpar", "rlolli", "rneg", "rone", "rbottom",
     "rtop", "rbang", "rwhynot", "wbang", "wwhynot", "cbang", "cwhynot", "cut",
     "intro", "assumption", "constructor", "left", "right", "cases", "apply", "exfalso",
-    "absurd", "by_contra",
+    "absurd", "by_contra", "type_intro", "type_apply", "exact",
     "translate", "translate_to", "tactic", "solve_np"
   ]
 
@@ -239,9 +242,9 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
                   let statementText := stripBySuffix afterColon
                   let headerError? :=
                     if profileText.isEmpty then
-                      some "Declare the full logic explicitly, for example `using IPC in ND with IPC_FULL` or `using LL in GENTZEN with LL`."
+                      some "Declare the full logic explicitly, for example `using IPC in ND with IPC_FULL`, `using LL in GENTZEN with LL`, or `using SYSTEM_F in ND`."
                     else if profile?.isNone then
-                      some "Unsupported logic specification. Use one of: `LL in GENTZEN with LL`, `LL! in GENTZEN with LL!`, `IPC in ND with IPC_IMP|IPC_PROP|IPC_FULL`, or `CPC in ND with CPC_PROP|CPC_FULL`."
+                      some "Unsupported logic specification. Use one of: `LL in GENTZEN with LL`, `LL! in GENTZEN with LL!`, `IPC in ND with IPC_IMP|IPC_PROP|IPC_FULL`, `CPC in ND with CPC_PROP|CPC_FULL`, or `SYSTEM_F in ND`."
                     else
                       none
                   some (name, profileText, profile?, some statementText, headerError?)
@@ -1773,6 +1776,550 @@ private def applyNDTactic (profile : Profile) (tactic : ParsedTactic) (goals : L
             message := s!"Tactic `{other}` is not implemented in the checked ND engine yet."
           }
 
+structure NDCertGoal where
+  context : List FastProofTheory.ND.Binding
+  target : Formula
+  finish : FastProofTheory.ND.Certificate → FastProofTheory.ND.Certificate := id
+
+private def ndFindBinding? (ctx : List FastProofTheory.ND.Binding) (name : String) :
+    Option FastProofTheory.ND.Binding :=
+  ctx.find? (fun binding => binding.name = name)
+
+private def ndReplaceBinding?
+    (ctx : List FastProofTheory.ND.Binding)
+    (name : String)
+    (replacement : FastProofTheory.ND.Binding) :
+    Option (List FastProofTheory.ND.Binding) := Id.run do
+  let rec loop
+      (acc : List FastProofTheory.ND.Binding)
+      (rest : List FastProofTheory.ND.Binding) :
+      Option (List FastProofTheory.ND.Binding) :=
+    match rest with
+    | [] => none
+    | binding :: tail =>
+        if binding.name = name then
+          some (acc.reverse ++ replacement :: tail)
+        else
+          loop (binding :: acc) tail
+  loop [] ctx
+
+private partial def buildNDCertificate (goal : NDCertGoal) (tactics : List ParsedTactic) :
+    Except EngineError (FastProofTheory.ND.Certificate × List ParsedTactic) := do
+  match tactics with
+  | [] =>
+      throw {
+        line := 0
+        severity := 1
+        code := "LEAN_BACKEND_ND_CERTIFICATE"
+        message := "The proof ends before all goals are closed by a certificate."
+      }
+  | tactic :: rest =>
+      match tactic.name with
+      | "intro" =>
+          match goal.target with
+          | .imp premise body =>
+              let name := tactic.args.head?.getD s!"h{goal.context.length + 1}"
+              let subgoal : NDCertGoal := {
+                context := { name, formula := premise } :: goal.context
+                target := body
+                finish := goal.finish ∘ FastProofTheory.ND.Certificate.impIntro name premise
+              }
+              buildNDCertificate subgoal rest
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := "Cannot certify theorem: `intro` was used on a non-implication goal."
+              }
+      | "assumption" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := "Cannot certify theorem: `assumption` requires a hypothesis name."
+                }
+          match ndFindBinding? goal.context name with
+          | some binding =>
+              if formulaMatches binding.formula goal.target then
+                pure (goal.finish (.hyp name), rest)
+              else
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := s!"Cannot certify theorem: hypothesis `{name}` does not match the current goal."
+                }
+          | none =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+      | "constructor" =>
+          match goal.target with
+          | .and left right =>
+              let (leftCert, rest') <- buildNDCertificate { goal with target := left, finish := id } rest
+              let (rightCert, rest'') <- buildNDCertificate { goal with target := right, finish := id } rest'
+              pure (goal.finish (.andIntro leftCert rightCert), rest'')
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := "Cannot certify theorem: `constructor` was used on a non-conjunction goal."
+              }
+      | "left" =>
+          if tactic.args.any (· = "at") then
+            let (name, restArgs) <- parseAtClause tactic
+            let alias := (parseAsOne restArgs).getD name
+            match ndFindBinding? goal.context name with
+            | some binding =>
+                match binding.formula with
+                | .and leftFormula _ =>
+                    match ndReplaceBinding? goal.context name { name := alias, formula := leftFormula } with
+                    | some ctx =>
+                        let (body, rest') <- buildNDCertificate { goal with context := ctx, finish := id } rest
+                        pure (goal.finish (.andLeftAt name alias body), rest')
+                    | none => throw {
+                        line := tactic.sourceLine
+                        severity := 1
+                        code := "LEAN_BACKEND_ND_CERTIFICATE"
+                        message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+                      }
+                | _ => throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_ND_CERTIFICATE"
+                    message := "Cannot certify theorem: `left at` applies only to conjunction hypotheses."
+                  }
+            | none => throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+          else
+            match goal.target with
+            | .or left _ =>
+                let (body, rest') <- buildNDCertificate { goal with target := left, finish := id } rest
+                pure (goal.finish (.orLeft body), rest')
+            | _ =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := "Cannot certify theorem: `left` was used on a non-disjunction goal."
+                }
+      | "right" =>
+          if tactic.args.any (· = "at") then
+            let (name, restArgs) <- parseAtClause tactic
+            let alias := (parseAsOne restArgs).getD name
+            match ndFindBinding? goal.context name with
+            | some binding =>
+                match binding.formula with
+                | .and _ rightFormula =>
+                    match ndReplaceBinding? goal.context name { name := alias, formula := rightFormula } with
+                    | some ctx =>
+                        let (body, rest') <- buildNDCertificate { goal with context := ctx, finish := id } rest
+                        pure (goal.finish (.andRightAt name alias body), rest')
+                    | none => throw {
+                        line := tactic.sourceLine
+                        severity := 1
+                        code := "LEAN_BACKEND_ND_CERTIFICATE"
+                        message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+                      }
+                | _ => throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_ND_CERTIFICATE"
+                    message := "Cannot certify theorem: `right at` applies only to conjunction hypotheses."
+                  }
+            | none => throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+          else
+            match goal.target with
+            | .or _ right =>
+                let (body, rest') <- buildNDCertificate { goal with target := right, finish := id } rest
+                pure (goal.finish (.orRight body), rest')
+            | _ =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := "Cannot certify theorem: `right` was used on a non-disjunction goal."
+                }
+      | "cases" =>
+          let (name, leftName, rightName) <- parseCasesAsTwo tactic
+          match ndFindBinding? goal.context name with
+          | some binding =>
+              match binding.formula with
+              | .or leftFormula rightFormula =>
+                  let (leftBody, rest') <- buildNDCertificate {
+                    goal with
+                    context := { name := leftName, formula := leftFormula } :: goal.context
+                    finish := id
+                  } rest
+                  let (rightBody, rest'') <- buildNDCertificate {
+                    goal with
+                    context := { name := rightName, formula := rightFormula } :: goal.context
+                    finish := id
+                  } rest'
+                  pure (
+                    goal.finish
+                      (.orElim
+                        (.hyp name)
+                        leftName leftFormula leftBody
+                        rightName rightFormula rightBody),
+                    rest''
+                  )
+              | _ =>
+                  throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_ND_CERTIFICATE"
+                    message := "Cannot certify theorem: `cases` applies only to disjunction hypotheses."
+                  }
+          | none =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+      | "apply" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := "Cannot certify theorem: `apply` requires a hypothesis name."
+                }
+          match ndFindBinding? goal.context name with
+          | some binding =>
+              match binding.formula with
+              | .imp premise conclusion =>
+                  if formulaMatches conclusion goal.target then
+                    let (argCert, rest') <- buildNDCertificate { goal with target := premise, finish := id } rest
+                    pure (goal.finish (.impElim premise (.hyp name) argCert), rest')
+                  else
+                    throw {
+                      line := tactic.sourceLine
+                      severity := 1
+                      code := "LEAN_BACKEND_ND_CERTIFICATE"
+                      message := s!"Cannot certify theorem: hypothesis `{name}` does not conclude the current goal."
+                    }
+              | _ =>
+                  throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_ND_CERTIFICATE"
+                    message := "Cannot certify theorem: `apply` requires an implication hypothesis."
+                  }
+          | none =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_ND_CERTIFICATE"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+      | "exfalso" =>
+          let (body, rest') <- buildNDCertificate { goal with target := .bot, finish := id } rest
+          pure (goal.finish (.bottomElim body), rest')
+      | "absurd" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_ND_CERTIFICATE"
+                  message := "Cannot certify theorem: `absurd` requires a hypothesis name."
+                }
+          pure (goal.finish (.bottomElim (.hyp name)), rest)
+      | "by_contra" =>
+          let hypName := tactic.args.head?.getD s!"h{goal.context.length + 1}"
+          let (body, rest') <- buildNDCertificate {
+            context := { name := hypName, formula := .imp goal.target .bot } :: goal.context
+            target := .bot
+            finish := id
+          } rest
+          pure (goal.finish (.classical hypName goal.target body), rest')
+      | other =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_ND_CERTIFICATE"
+            message := s!"Cannot certify theorem: unsupported tactic `{other}`."
+          }
+
+private def certifyNDTheorem
+    (profile : Profile)
+    (target : Formula)
+    (tactics : List ParsedTactic) :
+    Except EngineError FastProofTheory.ND.CheckedCertificate := do
+  let (certificate, remaining) <- buildNDCertificate { context := [], target } tactics
+  unless remaining.isEmpty do
+    let extraLine := remaining.head?.map (·.sourceLine) |>.getD 0
+    throw {
+      line := extraLine
+      severity := 1
+      code := "LEAN_BACKEND_ND_CERTIFICATE"
+      message := "The certificate closed before all tactic lines were consumed."
+    }
+  match FastProofTheory.ND.checkClosedTheorem profile target certificate with
+  | .ok checked => pure checked
+  | .error err =>
+      throw {
+        line := 0
+        severity := 1
+        code := "LEAN_BACKEND_ND_KERNEL"
+        message := FastProofTheory.ND.renderKernelError err
+      }
+
+private partial def renderSystemFTy : FastProofTheory.SystemF.SFTy → String
+  | .var name => name
+  | .arr a b => s!"({renderSystemFTy a} -> {renderSystemFTy b})"
+  | .all name body => s!"forall {name}. {renderSystemFTy body}"
+
+private def systemFGoalToEngineGoal (goal : FastProofTheory.SystemF.Goal) : EngineGoal :=
+  {
+    id := "systemf"
+    hypotheses := goal.context.map (fun (name, ty) => s!"{name} : {renderSystemFTy ty}")
+    target := renderSystemFTy goal.target
+  }
+
+inductive SystemFElabOutcome where
+  | closed (term : FastProofTheory.SystemF.SFTm)
+  | pending (goal : FastProofTheory.SystemF.Goal)
+
+private partial def buildSystemFCertificate
+    (goal : FastProofTheory.SystemF.Goal)
+    (tactics : List ParsedTactic) :
+    Except EngineError (SystemFElabOutcome × List ParsedTactic) := do
+  match tactics with
+  | [] => pure (.pending goal, [])
+  | tactic :: rest =>
+      match tactic.name with
+      | "intro" =>
+          match goal.target with
+          | .arr premise body =>
+              let name := tactic.args.head?.getD s!"x{goal.context.length + 1}"
+              let (outcome, remaining) <- buildSystemFCertificate {
+                context := (name, premise) :: goal.context
+                target := body
+              } rest
+              match outcome with
+              | .closed term => pure (.closed (.lam name premise term), remaining)
+              | .pending openGoal => pure (.pending openGoal, remaining)
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := "Cannot certify theorem: `intro` was used on a non-function goal."
+              }
+      | "type_intro" =>
+          match goal.target with
+          | .all binder body =>
+              let name := tactic.args.head?.getD binder
+              unless name = binder do
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: `type_intro` must use binder `{binder}` for this goal."
+                }
+              if name ∈ goal.context.freeTyVars then
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: type variable `{name}` occurs free in the context."
+                }
+              let (outcome, remaining) <- buildSystemFCertificate {
+                goal with target := body
+              } rest
+              match outcome with
+              | .closed term => pure (.closed (.tyLam name term), remaining)
+              | .pending openGoal => pure (.pending openGoal, remaining)
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := "Cannot certify theorem: `type_intro` was used on a non-polymorphic goal."
+              }
+      | "assumption" | "exact" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: `{tactic.name}` requires a hypothesis name."
+                }
+          match goal.context.lookup? name with
+          | some ty =>
+              if Logic.SystemF.Ty.eq ty goal.target then
+                pure (.closed (.var name), rest)
+              else
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: hypothesis `{name}` does not match the current goal."
+                }
+          | none =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+      | "apply" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := "Cannot certify theorem: `apply` requires a hypothesis name."
+                }
+          match goal.context.lookup? name with
+          | some ty =>
+              match ty with
+              | .arr premise conclusion =>
+                  if Logic.SystemF.Ty.eq conclusion goal.target then
+                    let (outcome, remaining) <- buildSystemFCertificate { goal with target := premise } rest
+                    match outcome with
+                    | .closed arg => pure (.closed (.app (.var name) arg), remaining)
+                    | .pending openGoal => pure (.pending openGoal, remaining)
+                  else
+                    throw {
+                      line := tactic.sourceLine
+                      severity := 1
+                      code := "LEAN_BACKEND_SYSTEM_F"
+                      message := s!"Cannot certify theorem: hypothesis `{name}` does not conclude the current goal."
+                    }
+              | _ =>
+                  throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_SYSTEM_F"
+                    message := "Cannot certify theorem: `apply` requires a function-type hypothesis."
+                  }
+          | none =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+              }
+      | "type_apply" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := "Cannot certify theorem: `type_apply` requires a hypothesis name."
+                }
+          let tyText := String.intercalate " " (tactic.args.drop 1)
+          if tyText.isEmpty then
+            throw {
+              line := tactic.sourceLine
+              severity := 1
+              code := "LEAN_BACKEND_SYSTEM_F"
+              message := "Cannot certify theorem: `type_apply` requires a type argument."
+            }
+          match FastProofTheory.SystemF.Syntax.parseType tyText with
+          | .error msg =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := s!"Cannot certify theorem: invalid type argument: {msg}"
+              }
+          | .ok tyArg =>
+              match goal.context.lookup? name with
+              | some ty =>
+                  match ty with
+                  | .all binder body =>
+                      match Logic.SystemF.Ty.subst? binder tyArg body with
+                      | .ok instantiated =>
+                          match instantiated with
+                          | .arr premise conclusion =>
+                              if Logic.SystemF.Ty.eq conclusion goal.target then
+                                let (outcome, remaining) <- buildSystemFCertificate { goal with target := premise } rest
+                                match outcome with
+                                | .closed arg => pure (.closed (.app (.tyApp (.var name) tyArg) arg), remaining)
+                                | .pending openGoal => pure (.pending openGoal, remaining)
+                              else
+                                throw {
+                                  line := tactic.sourceLine
+                                  severity := 1
+                                  code := "LEAN_BACKEND_SYSTEM_F"
+                                  message := s!"Cannot certify theorem: instantiated hypothesis `{name}` does not conclude the current goal."
+                                }
+                          | _ =>
+                              if Logic.SystemF.Ty.eq instantiated goal.target then
+                                pure (.closed (.tyApp (.var name) tyArg), rest)
+                              else
+                                throw {
+                                  line := tactic.sourceLine
+                                  severity := 1
+                                  code := "LEAN_BACKEND_SYSTEM_F"
+                                  message := s!"Cannot certify theorem: instantiated hypothesis `{name}` does not match the current goal."
+                                }
+                      | .error msg =>
+                          throw {
+                            line := tactic.sourceLine
+                            severity := 1
+                            code := "LEAN_BACKEND_SYSTEM_F"
+                            message := s!"Cannot certify theorem: invalid type application: {msg}"
+                          }
+                  | _ =>
+                      throw {
+                        line := tactic.sourceLine
+                        severity := 1
+                        code := "LEAN_BACKEND_SYSTEM_F"
+                        message := "Cannot certify theorem: `type_apply` requires a polymorphic hypothesis."
+                      }
+              | none =>
+                  throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_SYSTEM_F"
+                    message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+                  }
+      | other =>
+          throw {
+            line := tactic.sourceLine
+            severity := 1
+            code := "LEAN_BACKEND_SYSTEM_F"
+            message := s!"Cannot certify theorem: unsupported tactic `{other}`."
+          }
+
+private def certifySystemFTheorem
+    (target : FastProofTheory.SystemF.SFTy)
+    (tactics : List ParsedTactic) :
+    Except EngineError (SystemFElabOutcome × List ParsedTactic) := do
+  buildSystemFCertificate { context := [], target } tactics
+
 private def evaluateNDTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError := Id.run do
   match thm.headerError? with
@@ -1846,22 +2393,32 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                     ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
                 | none =>
                     let verified := openGoals.isEmpty
-                    let status :=
-                      if verified then
-                        s!"Theorem {thm.name} verified in profile {profile.displayName}."
-                      else
-                        s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
-                    let warnings :=
-                      if verified then
-                        []
-                      else
-                        [{
-                          line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
-                          severity := 1
-                          code := "LEAN_BACKEND_OPEN_GOALS"
-                          message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
-                        }]
-                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
+                    if verified then
+                      match goals with
+                      | [(_, target)] =>
+                          match certifyNDTheorem profile target tactics with
+                          | .ok _ =>
+                              let status := s!"Theorem {thm.name} verified in profile {profile.displayName}."
+                              ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified := true }, [])
+                          | .error err =>
+                              ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                      | _ =>
+                          let err := {
+                            line := thm.firstLine
+                            severity := 1
+                            code := "LEAN_BACKEND_ND_CERTIFICATE"
+                            message := "Natural-deduction certificate checking expects exactly one theorem statement goal."
+                          }
+                          ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                    else
+                      let status := s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
+                      let warnings := [{
+                        line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
+                        severity := 1
+                        code := "LEAN_BACKEND_OPEN_GOALS"
+                        message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
+                      }]
+                      ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified := false }, warnings)
 
 private def evaluateLinearTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError := Id.run do
@@ -1959,12 +2516,110 @@ private def evaluateLinearTheorem (thm : ParsedTheorem) :
                             }]
                         ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
 
+private def evaluateSystemFTheorem (thm : ParsedTheorem) :
+    EngineState × List EngineError := Id.run do
+  match thm.headerError? with
+  | some msg =>
+      let err := {
+        line := thm.firstLine
+        severity := 1
+        code := "LEAN_BACKEND_THEOREM_HEADER"
+        message := msg
+      }
+      return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+  | none =>
+      match thm.profile? with
+      | none =>
+          let err := {
+            line := thm.firstLine
+            severity := 1
+            code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+            message := "Every theorem must declare a complete supported logic specification."
+          }
+          return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+      | some profile =>
+          if !(profile.isSystemF && profile.isNaturalDeduction && profile.hasValidConfiguration) then
+            let err := {
+              line := thm.firstLine
+              severity := 1
+              code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+              message := "Only `SYSTEM_F in ND` is accepted by the System F proof-term checker."
+            }
+            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+          else
+            match thm.statement? with
+            | none =>
+                let err := {
+                  line := thm.firstLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := "System F theorems must declare a target type in the header."
+                }
+                ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+            | some statement =>
+                match FastProofTheory.SystemF.Syntax.parseType statement.text with
+                | .error msg =>
+                    let err := {
+                      line := statement.line
+                      severity := 1
+                      code := "LEAN_BACKEND_SYSTEM_F"
+                      message := s!"Invalid System F target type: {msg}"
+                    }
+                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+                | .ok target =>
+                    let tactics := thm.tactics.map parseTacticLine
+                    match certifySystemFTheorem target tactics with
+                    | .error err =>
+                        let diag := {
+                          line := tactics.head?.map (·.sourceLine) |>.getD statement.line
+                          severity := 1
+                          code := "LEAN_BACKEND_SYSTEM_F"
+                          message := err.message
+                        }
+                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := diag.message, verified := false }, [diag])
+                    | .ok (.pending openGoal, remaining) =>
+                        unless remaining.isEmpty do
+                          let extraLine := remaining.head?.map (·.sourceLine) |>.getD statement.line
+                          let err := {
+                            line := extraLine
+                            severity := 1
+                            code := "LEAN_BACKEND_SYSTEM_F"
+                            message := "The proof ended before all tactic lines were consumed."
+                          }
+                          return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+                        let goals := [systemFGoalToEngineGoal openGoal]
+                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals, status := "Open goals.", verified := false }, [])
+                    | .ok (.closed term, remaining) =>
+                        unless remaining.isEmpty do
+                          let extraLine := remaining.head?.map (·.sourceLine) |>.getD statement.line
+                          let err := {
+                            line := extraLine
+                            severity := 1
+                            code := "LEAN_BACKEND_SYSTEM_F"
+                            message := "The proof ended before all tactic lines were consumed."
+                          }
+                          return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+                        match FastProofTheory.SystemF.checkClosedTheorem target term with
+                        | .ok _ =>
+                            let status := s!"Theorem {thm.name} verified in profile {profile.displayName}."
+                            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status, verified := true }, [])
+                        | .error err =>
+                            let diag := {
+                              line := statement.line
+                              severity := 1
+                              code := "LEAN_BACKEND_SYSTEM_F_KERNEL"
+                              message := FastProofTheory.SystemF.renderKernelError err
+                            }
+                            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := diag.message, verified := false }, [diag])
+
 private def evaluateTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError :=
   match thm.profile? with
   | some profile =>
       if profile.isLinearGentzen && profile.hasValidConfiguration then
         evaluateLinearTheorem thm
+      else if profile.isSystemF && profile.hasValidConfiguration then
+        evaluateSystemFTheorem thm
       else if profile.isNaturalDeduction && profile.hasValidConfiguration then
         evaluateNDTheorem thm
       else

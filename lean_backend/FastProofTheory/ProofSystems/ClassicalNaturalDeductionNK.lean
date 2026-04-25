@@ -1,4 +1,4 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
 
 namespace NK
 

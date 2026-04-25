@@ -1,4 +1,5 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
+import FastProofTheory.Core.Kernel
 import FastProofTheory.Linear.Profile
 
 namespace FastProofTheory.Linear
@@ -49,11 +50,8 @@ inductive Certificate where
   | oneIntro
   | topIntro
 
-structure CheckedCertificate where
-  profile : Profile
-  goal : Goal
-  certificate : Certificate
-  summary : String
+abbrev CheckedCertificate :=
+  FastProofTheory.Core.CheckedCertificate Profile Goal Certificate
 
 inductive KernelError where
   | ruleNotAllowed (profile : String) (rule : RuleKind)
@@ -386,7 +384,7 @@ partial def checkCore (goal : Goal) (certificate : Certificate) : CheckM Unit :=
       unless formulaEq goal.target .top do
         throw (.expectedTarget .topIntro goal.target)
 
-def checkCertificate (profile : Profile) (goal : Goal) (certificate : Certificate) :
+private def checkCertificateRaw (profile : Profile) (goal : Goal) (certificate : Certificate) :
     Except KernelError CheckedCertificate :=
   match (checkCore goal certificate).run profile with
   | .ok _ =>
@@ -397,6 +395,15 @@ def checkCertificate (profile : Profile) (goal : Goal) (certificate : Certificat
         summary := s!"Checked certificate for {profile.displayName} using rule {certificate.rootRule.displayName}."
       }
   | .error err => .error err
+
+instance : FastProofTheory.Core.ProofKernel Profile Goal Certificate KernelError where
+  kind := .gentzenSequent
+  check := checkCertificateRaw
+  renderError := renderKernelError
+
+def checkCertificate (profile : Profile) (goal : Goal) (certificate : Certificate) :
+    Except KernelError CheckedCertificate :=
+  FastProofTheory.Core.checkCertificate profile goal certificate
 
 def checkClosedTheorem (profile : Profile) (target : Formula) (certificate : Certificate) :
     Except KernelError CheckedCertificate :=

@@ -625,6 +625,9 @@ async function activate(context) {
         "cbang",
         "cwhynot",
         "cut",
+        "type_intro",
+        "type_apply",
+        "exact",
     ].map((k) => k.toLowerCase()));
     const operatorRe = /[⊗⊕&!:]/g;
     const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider({ language: "mypa" }, {

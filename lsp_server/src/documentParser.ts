@@ -37,6 +37,9 @@ const tacticNames = new Set(
     "cut",
     "translate",
     "translate_to",
+    "type_intro",
+    "type_apply",
+    "exact",
   ].map((t) => t.toLowerCase())
 );
 
@@ -57,6 +60,7 @@ enum LogicToken {
   IPC = "IPC",
   CPC = "CPC",
   STLC = "STLC",
+  SYSTEM_F = "SYSTEM_F",
 }
 
 enum CalculusToken {
@@ -71,6 +75,7 @@ const LOGIC_DEFAULT_CALCULUS: ReadonlyMap<LogicToken, CalculusToken> = new Map([
   [LogicToken.IPC, CalculusToken.ND],
   [LogicToken.CPC, CalculusToken.ND],
   [LogicToken.STLC, CalculusToken.ND],
+  [LogicToken.SYSTEM_F, CalculusToken.ND],
 ]);
 
 const CALCULUS_DEFAULT_LOGIC: ReadonlyMap<CalculusToken, LogicToken> = new Map([

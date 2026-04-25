@@ -722,6 +722,9 @@ export async function activate(context: vscode.ExtensionContext) {
       "cbang",
       "cwhynot",
       "cut",
+      "type_intro",
+      "type_apply",
+      "exact",
     ].map((k) => k.toLowerCase())
   );
   const operatorRe = /[⊗⊕&!:]/g;

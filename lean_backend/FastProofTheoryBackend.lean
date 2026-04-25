@@ -1,4 +1,4 @@
-import FastProofTheoryLogic
+import Logic
 import FastProofTheory.Basic
 import FastProofTheory.Linear.Syntax
 import FastProofTheory.Linear.Kernel

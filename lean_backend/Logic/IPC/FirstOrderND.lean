@@ -1,6 +1,6 @@
-import FastProofTheory.ProofSystems.Rules
+import Logic.Rules
 
-namespace FastProofTheory.Logic.IPC.FirstOrderND
+namespace Logic.IPC.FirstOrderND
 
 open Rules
 
@@ -65,4 +65,4 @@ inductive Derivation : Context → Formula → Type where
 
 abbrev Theorem (A : Formula) : Prop := Nonempty (Derivation [] A)
 
-end FastProofTheory.Logic.IPC.FirstOrderND
+end Logic.IPC.FirstOrderND
