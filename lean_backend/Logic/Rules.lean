@@ -3,6 +3,7 @@ namespace Rules
 inductive Term where
 | var : String -> Term
 | fn : String -> List Term -> Term
+deriving Inhabited, Repr
 
 inductive Formula where
 | atom : String -> Formula
@@ -24,6 +25,7 @@ inductive Formula where
 | zero : Formula
 | top : Formula
 | bottom : Formula
+deriving Inhabited, Repr
 
 scoped infixr:60 " ⟶ " => Formula.imp
 scoped infixr:55 " ∧ " => Formula.and
@@ -45,26 +47,139 @@ def substTerm (x : String) (t : Term) : Term -> Term
 | .var y => if x = y then t else .var y
 | .fn f args => .fn f (args.map (substTerm x t))
 
-def substFormula (x : String) (t : Term) : Formula -> Formula
-| .atom p => .atom p
-| .pred p args => .pred p (args.map (substTerm x t))
-| .imp A B => .imp (substFormula x t A) (substFormula x t B)
-| .and A B => .and (substFormula x t A) (substFormula x t B)
-| .or A B => .or (substFormula x t A) (substFormula x t B)
-| .bot => .bot
-| .all y A => if x = y then .all y A else .all y (substFormula x t A)
-| .ex y A => if x = y then .ex y A else .ex y (substFormula x t A)
-| .tensor A B => .tensor (substFormula x t A) (substFormula x t B)
-| .par A B => .par (substFormula x t A) (substFormula x t B)
-| .with A B => .with (substFormula x t A) (substFormula x t B)
-| .plus A B => .plus (substFormula x t A) (substFormula x t B)
-| .lolli A B => .lolli (substFormula x t A) (substFormula x t B)
-| .bang A => .bang (substFormula x t A)
-| .whyNot A => .whyNot (substFormula x t A)
-| .one => .one
-| .zero => .zero
-| .top => .top
-| .bottom => .bottom
+def Term.freeVars : Term -> List String
+| .var x => [x]
+| .fn _ args => args.flatMap Term.freeVars |>.eraseDups
+
+def Term.allNames : Term -> List String
+| .var x => [x]
+| .fn _ args => args.flatMap Term.allNames |>.eraseDups
+
+def Formula.freeVars : Formula -> List String
+| .atom _ => []
+| .pred _ args => args.flatMap Term.freeVars |>.eraseDups
+| .imp A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .and A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .or A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .bot => []
+| .all y A => (Formula.freeVars A).erase y
+| .ex y A => (Formula.freeVars A).erase y
+| .tensor A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .par A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .with A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .plus A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .lolli A B => (Formula.freeVars A ++ Formula.freeVars B).eraseDups
+| .bang A => Formula.freeVars A
+| .whyNot A => Formula.freeVars A
+| .one => []
+| .zero => []
+| .top => []
+| .bottom => []
+
+def Formula.allNames : Formula -> List String
+| .atom name => [name]
+| .pred _ args => args.flatMap Term.allNames |>.eraseDups
+| .imp A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .and A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .or A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .bot => []
+| .all y A => (y :: Formula.allNames A).eraseDups
+| .ex y A => (y :: Formula.allNames A).eraseDups
+| .tensor A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .par A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .with A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .plus A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .lolli A B => (Formula.allNames A ++ Formula.allNames B).eraseDups
+| .bang A => Formula.allNames A
+| .whyNot A => Formula.allNames A
+| .one => []
+| .zero => []
+| .top => []
+| .bottom => []
+
+private partial def freshVar (base : String) (avoid : List String) : String :=
+  let rec loop (candidate : String) : String :=
+    if candidate ∈ avoid then loop (candidate ++ "'") else candidate
+  loop base
+
+private partial def renameTermVar (old new : String) : Term -> Term
+| .var y => if y = old then .var new else .var y
+| .fn f args => .fn f (args.map (renameTermVar old new))
+
+private partial def renameFormulaVarScoped (old new : String) : Formula -> Formula
+  | .atom p => .atom p
+  | .pred p args => .pred p (args.map (renameTermVar old new))
+  | .imp A B => .imp (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .and A B => .and (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .or A B => .or (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .bot => .bot
+  | .all y A =>
+      if y = old then
+        .all y A
+      else
+        .all y (renameFormulaVarScoped old new A)
+  | .ex y A =>
+      if y = old then
+        .ex y A
+      else
+        .ex y (renameFormulaVarScoped old new A)
+  | .tensor A B => .tensor (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .par A B => .par (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .with A B => .with (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .plus A B => .plus (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .lolli A B => .lolli (renameFormulaVarScoped old new A) (renameFormulaVarScoped old new B)
+  | .bang A => .bang (renameFormulaVarScoped old new A)
+  | .whyNot A => .whyNot (renameFormulaVarScoped old new A)
+  | .one => .one
+  | .zero => .zero
+  | .top => .top
+  | .bottom => .bottom
+
+private partial def substFormulaAvoidCapture (x : String) (t : Term) : Formula -> Formula
+  | .atom p => .atom p
+  | .pred p args => .pred p (args.map (substTerm x t))
+  | .imp A B => .imp (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .and A B => .and (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .or A B => .or (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .bot => .bot
+  | .all y A =>
+      if x = y then
+        .all y A
+      else
+        let tFVs := Term.freeVars t
+        if y ∈ tFVs then
+          let avoid := (tFVs ++ Formula.allNames A ++ [x, y]).eraseDups
+          let fresh := freshVar y avoid
+          let renamed := renameFormulaVarScoped y fresh A
+          .all fresh (substFormulaAvoidCapture x t renamed)
+        else
+          .all y (substFormulaAvoidCapture x t A)
+  | .ex y A =>
+      if x = y then
+        .ex y A
+      else
+        let tFVs := Term.freeVars t
+        if y ∈ tFVs then
+          let avoid := (tFVs ++ Formula.allNames A ++ [x, y]).eraseDups
+          let fresh := freshVar y avoid
+          let renamed := renameFormulaVarScoped y fresh A
+          .ex fresh (substFormulaAvoidCapture x t renamed)
+        else
+          .ex y (substFormulaAvoidCapture x t A)
+  | .tensor A B => .tensor (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .par A B => .par (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .with A B => .with (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .plus A B => .plus (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .lolli A B => .lolli (substFormulaAvoidCapture x t A) (substFormulaAvoidCapture x t B)
+  | .bang A => .bang (substFormulaAvoidCapture x t A)
+  | .whyNot A => .whyNot (substFormulaAvoidCapture x t A)
+  | .one => .one
+  | .zero => .zero
+  | .top => .top
+  | .bottom => .bottom
+
+def substFormula (x : String) (t : Term) : Formula -> Formula :=
+  substFormulaAvoidCapture x t
 
 def isImplicational : Formula -> Prop
 | .atom _ => True

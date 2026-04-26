@@ -1,0 +1,46 @@
+-- Product-facing checked examples.
+
+def ll_currying using LL in GENTZEN with LL : (a ⊗ b) ⊸ (b ⊗ a) := by
+rlolli h
+ltensor at h as ha hb
+rtensor hb
+ax hb
+ax ha
+
+def llbang_copy_pair using LL! in GENTZEN with LL! : !(a & b) ⊸ (!a ⊗ !b) := by
+rlolli h
+lbang at h
+rtensor
+rbang
+lleft at h as ha
+ax ha
+rbang
+lright at h as hb
+ax hb
+
+theorem njp_or_comm using NJp : (p ∨ q) -> (q ∨ p) := by
+intro h
+cases at h as hp hq
+right
+assumption hp
+left
+assumption hq
+
+theorem nkp_double_negation using NKp : ((p -> ⊥) -> ⊥) -> p := by
+intro h
+by_contra hp
+apply h
+assumption hp
+
+theorem systemf_const using SYSTEM_F in ND : (Lambda p. (Lambda q. (\x : p. (\y : q. x)))) has_type forall p. forall q. p -> q -> p := by
+type_intro p
+type_intro q
+intro x
+intro y
+exact x
+
+theorem systemf_apply_poly_id using SYSTEM_F in ND : ((Lambda p. (\x : p. x)) [q]) has_type q -> q := by
+type_apply p p -> p
+type_intro p
+intro x
+exact x

@@ -16,21 +16,6 @@ let reqSeq = 0;
 let requestEpoch = 0;
 let verifiedTheoremDecoration: vscode.TextEditorDecorationType | undefined;
 
-type Completion = {
-  label: string;
-  insertText: string;
-  detail?: string;
-  documentation?: string;
-};
-
-type DirectiveCompletion = {
-  label: string;
-  insertText: string;
-  detail?: string;
-  documentation?: string;
-  kind?: vscode.CompletionItemKind;
-};
-
 type GoalsResponse =
   | { kind: "ok"; reqId: string; goals: ProofState["goals"]; diagnostics: unknown[]; display?: ProofState["display"]; theoremStatuses?: TheoremStatus[] }
   | { kind: "no_goals"; reqId: string; reason: string; diagnostics: unknown[]; display?: ProofState["display"]; theoremStatuses?: TheoremStatus[] }
@@ -56,11 +41,41 @@ type GoalsRequestResult = {
   theoremStatuses: TheoremStatus[];
 };
 
-type RuleHover = {
+type SymbolCompletion = {
+  label: string;
+  insertText: string;
+  detail: string;
+  documentation: string;
+};
+
+type DirectiveCompletion = SymbolCompletion;
+
+type TacticDoc = {
+  name: string;
   title: string;
   display: string;
-  latex: string;
+  summary: string;
 };
+
+type FormalSystemDoc = {
+  key: string;
+  aliases: string[];
+  title: string;
+  summary: string;
+  language: string[];
+  tactics: TacticDoc[];
+  checkedNow: string[];
+};
+
+type DomainInfo = {
+  symbolCompletions: SymbolCompletion[];
+  directives: DirectiveCompletion[];
+  systems: FormalSystemDoc[];
+  keywords: string[];
+  operators: string[];
+};
+
+let domainInfo: DomainInfo = emptyDomainInfo();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -89,121 +104,47 @@ function isTheoremStatus(value: unknown): value is TheoremStatus {
     typeof value.verified === "boolean";
 }
 
+function emptyDomainInfo(): DomainInfo {
+  return {
+    symbolCompletions: [],
+    directives: [],
+    systems: [],
+    keywords: [],
+    operators: [],
+  };
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isDomainInfo(value: unknown): value is DomainInfo {
+  if (!isRecord(value)) return false;
+  return (
+    Array.isArray(value.symbolCompletions) &&
+    Array.isArray(value.directives) &&
+    Array.isArray(value.systems) &&
+    isStringArray(value.keywords) &&
+    isStringArray(value.operators)
+  );
+}
+
+function tacticDocsByName(info: DomainInfo): Map<string, TacticDoc> {
+  const docs = new Map<string, TacticDoc>();
+  for (const system of info.systems) {
+    for (const tactic of system.tactics) {
+      docs.set(tactic.name.toLowerCase(), tactic);
+    }
+  }
+  return docs;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const semanticTokenTypes = ["keyword", "operator", "comment"] as const;
 const semanticLegend = new vscode.SemanticTokensLegend([...semanticTokenTypes], []);
-
-const ruleHovers: Record<string, RuleHover> = {
-  ax: {
-    title: "Axiom",
-    display: "A ⊢ A",
-    latex: String.raw`\frac{}{A \vdash A}\ \mathrm{ax}`,
-  },
-  rlolli: {
-    title: "Right Lolli",
-    display: "Γ, A ⊢ B, Δ\n────────────── rlolli\nΓ ⊢ A ⊸ B, Δ",
-    latex: String.raw`\frac{\Gamma, A \vdash B, \Delta}{\Gamma \vdash A \multimap B, \Delta}\ \mathrm{rlolli}`,
-  },
-  rtensor: {
-    title: "Right Tensor",
-    display: "Γ ⊢ A, Δ    Π ⊢ B, Σ\n──────────────────── rtensor\nΓ, Π ⊢ A ⊗ B, Δ, Σ",
-    latex: String.raw`\frac{\Gamma \vdash A, \Delta \qquad \Pi \vdash B, \Sigma}{\Gamma, \Pi \vdash A \otimes B, \Delta, \Sigma}\ \mathrm{rtensor}`,
-  },
-  rwith: {
-    title: "Right With",
-    display: "Γ ⊢ A, Δ    Γ ⊢ B, Δ\n──────────────────── rwith\nΓ ⊢ A & B, Δ",
-    latex: String.raw`\frac{\Gamma \vdash A, \Delta \qquad \Gamma \vdash B, \Delta}{\Gamma \vdash A \mathbin{\&} B, \Delta}\ \mathrm{rwith}`,
-  },
-  lleft: {
-    title: "Left With-1",
-    display: "Γ, A ⊢ Δ\n────────── lleft at h\nΓ, A & B ⊢ Δ",
-    latex: String.raw`\frac{\Gamma, A \vdash \Delta}{\Gamma, A \mathbin{\&} B \vdash \Delta}\ \mathrm{lleft}`,
-  },
-  lright: {
-    title: "Left With-2",
-    display: "Γ, B ⊢ Δ\n────────── lright at h\nΓ, A & B ⊢ Δ",
-    latex: String.raw`\frac{\Gamma, B \vdash \Delta}{\Gamma, A \mathbin{\&} B \vdash \Delta}\ \mathrm{lright}`,
-  },
-  ltensor: {
-    title: "Left Tensor",
-    display: "Γ, A, B ⊢ Δ\n──────────── ltensor at h\nΓ, A ⊗ B ⊢ Δ",
-    latex: String.raw`\frac{\Gamma, A, B \vdash \Delta}{\Gamma, A \otimes B \vdash \Delta}\ \mathrm{ltensor}`,
-  },
-  lplus: {
-    title: "Left Plus",
-    display: "Γ, A ⊢ Δ    Γ, B ⊢ Δ\n──────────────────── lplus at h\nΓ, A ⊕ B ⊢ Δ",
-    latex: String.raw`\frac{\Gamma, A \vdash \Delta \qquad \Gamma, B \vdash \Delta}{\Gamma, A \oplus B \vdash \Delta}\ \mathrm{lplus}`,
-  },
-  rplusl: {
-    title: "Right Plus-1",
-    display: "Γ ⊢ A, Δ\n────────── rplusl\nΓ ⊢ A ⊕ B, Δ",
-    latex: String.raw`\frac{\Gamma \vdash A, \Delta}{\Gamma \vdash A \oplus B, \Delta}\ \mathrm{rplusl}`,
-  },
-  rplusr: {
-    title: "Right Plus-2",
-    display: "Γ ⊢ B, Δ\n────────── rplusr\nΓ ⊢ A ⊕ B, Δ",
-    latex: String.raw`\frac{\Gamma \vdash B, \Delta}{\Gamma \vdash A \oplus B, \Delta}\ \mathrm{rplusr}`,
-  },
-  rpar: {
-    title: "Right Par",
-    display: "Γ ⊢ A, B, Δ\n──────────── rpar\nΓ ⊢ A ⅋ B, Δ",
-    latex: String.raw`\frac{\Gamma \vdash A, B, \Delta}{\Gamma \vdash A \parr B, \Delta}\ \mathrm{rpar}`,
-  },
-  llolli: {
-    title: "Left Lolli",
-    display: "Γ ⊢ A, Δ    Π, B ⊢ Σ\n──────────────────── llolli at h\nΓ, Π, A ⊸ B ⊢ Δ, Σ",
-    latex: String.raw`\frac{\Gamma \vdash A, \Delta \qquad \Pi, B \vdash \Sigma}{\Gamma, \Pi, A \multimap B \vdash \Delta, \Sigma}\ \mathrm{llolli}`,
-  },
-  intro: {
-    title: "Implication Introduction",
-    display: "A, Γ ⊢ B\n────────── intro h\nΓ ⊢ A ⟶ B",
-    latex: String.raw`\frac{A, \Gamma \vdash B}{\Gamma \vdash A \to B}\ \mathrm{intro}`,
-  },
-  assumption: {
-    title: "Assumption",
-    display: "A ∈ Γ\n────── assumption h\nΓ ⊢ A",
-    latex: String.raw`\frac{}{\,\Gamma \vdash A\,}\ \mathrm{assumption}`,
-  },
-  constructor: {
-    title: "Conjunction Introduction",
-    display: "Γ ⊢ A    Γ ⊢ B\n──────────────── constructor\nΓ ⊢ A ∧ B",
-    latex: String.raw`\frac{\Gamma \vdash A \qquad \Gamma \vdash B}{\Gamma \vdash A \land B}\ \mathrm{constructor}`,
-  },
-  left: {
-    title: "Left Rule",
-    display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ A\nHyp: h : A ∧ B gives h : A",
-    latex: String.raw`\frac{\Gamma \vdash A}{\Gamma \vdash A \lor B}\ \mathrm{left}`,
-  },
-  right: {
-    title: "Right Rule",
-    display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ B\nHyp: h : A ∧ B gives h : B",
-    latex: String.raw`\frac{\Gamma \vdash B}{\Gamma \vdash A \lor B}\ \mathrm{right}`,
-  },
-  cases: {
-    title: "Disjunction Elimination",
-    display: "Γ ⊢ A ∨ B    A, Γ ⊢ C    B, Γ ⊢ C\n──────────────────────────── cases at h as hp hq\nΓ ⊢ C",
-    latex: String.raw`\frac{\Gamma \vdash A \lor B \qquad A, \Gamma \vdash C \qquad B, \Gamma \vdash C}{\Gamma \vdash C}\ \mathrm{cases}`,
-  },
-  apply: {
-    title: "Implication Elimination",
-    display: "h : A ⟶ B    Goal: B\n──────────── apply h\nNew goal: A",
-    latex: String.raw`\frac{\Gamma \vdash A \to B \qquad \Gamma \vdash A}{\Gamma \vdash B}\ \mathrm{apply}`,
-  },
-  exfalso: {
-    title: "Bottom Goal",
-    display: "Goal: C\n──────── exfalso\nGoal: ⊥",
-    latex: String.raw`\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{exfalso}`,
-  },
-  absurd: {
-    title: "Bottom Elimination",
-    display: "h : ⊥\n────── absurd h\nΓ ⊢ C",
-    latex: String.raw`\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{absurd}`,
-  },
-  by_contra: {
-    title: "Classical Rule",
-    display: "(A ⟶ ⊥), Γ ⊢ ⊥\n──────────────── by_contra h\nΓ ⊢ A",
-    latex: String.raw`\frac{(\neg A), \Gamma \vdash \bot}{\Gamma \vdash A}\ \mathrm{by\_contra}`,
-  },
-};
 
 function ensureGoalsPanel(
   context: vscode.ExtensionContext,
@@ -265,6 +206,20 @@ async function startLanguageClient(context: vscode.ExtensionContext) {
   languageClient = new LanguageClient("mypa-lsp", "MyPA Language Server", serverOptions, clientOptions);
   context.subscriptions.push(languageClient.start());
   await languageClient.onReady();
+}
+
+async function loadDomainInfo(): Promise<void> {
+  if (!languageClient) {
+    domainInfo = emptyDomainInfo();
+    return;
+  }
+  try {
+    const response = await languageClient.sendRequest<unknown>("mypa/domainInfo");
+    domainInfo = isDomainInfo(response) ? response : emptyDomainInfo();
+  } catch (err) {
+    domainInfo = emptyDomainInfo();
+    output?.appendLine(`[mypa] domainInfo failed: ${(err as Error).message}`);
+  }
 }
 
 function applyTheoremDecorations(editor: vscode.TextEditor, statuses: TheoremStatus[]) {
@@ -431,6 +386,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   try {
     await startLanguageClient(context);
+    await loadDomainInfo();
     lspStartupError = undefined;
     output.appendLine("[mypa] language client started");
   } catch (err) {
@@ -540,55 +496,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  const completions: Completion[] = [
-    { label: "\\otimes", insertText: "⊗", detail: "tensor / times" },
-    { label: "\\tensor", insertText: "⊗", detail: "tensor / times" },
-    { label: "\\lolli", insertText: "⊸", detail: "lollipop / implication" },
-    { label: "\\with", insertText: "&", detail: "with" },
-    { label: "\\plus", insertText: "⊕", detail: "plus" },
-    { label: "\\oplus", insertText: "⊕", detail: "plus" },
-    { label: "\\top", insertText: "⊤", detail: "top" },
-    { label: "\\bot", insertText: "⊥", detail: "bottom" },
-    { label: "\\bottom", insertText: "⊥", detail: "bottom" },
-    { label: "\\one", insertText: "1", detail: "one" },
-    { label: "\\zero", insertText: "0", detail: "zero" },
-    { label: "\\bang", insertText: "!", detail: "of course" },
-  ];
-
-  const directiveCompletions: DirectiveCompletion[] = [
-    {
-      label: "#help",
-      insertText: "#help ",
-      detail: "Show formal-system help",
-      documentation: "Display the language and inference rules for a supported formal system.",
-      kind: vscode.CompletionItemKind.Keyword,
-    },
-  ];
-
-  const helpSystemCompletions: DirectiveCompletion[] = [
-    {
-      label: "cllp_gentzen",
-      insertText: "cllp_gentzen",
-      detail: "Classical linear logic, Gentzen sequent calculus",
-      documentation: "Urzyczyn-style classical linear propositional calculus in sequent form.",
-      kind: vscode.CompletionItemKind.Reference,
-    },
-    {
-      label: "ipc_nd",
-      insertText: "ipc_nd",
-      detail: "Intuitionistic propositional calculus, natural deduction",
-      documentation: "IPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
-      kind: vscode.CompletionItemKind.Reference,
-    },
-    {
-      label: "cpc_nd",
-      insertText: "cpc_nd",
-      detail: "Classical propositional calculus, natural deduction",
-      documentation: "CPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
-      kind: vscode.CompletionItemKind.Reference,
-    },
-  ];
-
   const completionProvider = vscode.languages.registerCompletionItemProvider(
     { language: "mypa" },
     {
@@ -597,12 +504,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (linePrefix.startsWith("#help ")) {
           const systemPrefix = linePrefix.slice("#help ".length).trimLeft();
+          const helpSystemCompletions = domainInfo.systems.flatMap((system) =>
+            [system.key, ...system.aliases].map((name) => ({
+              label: name,
+              insertText: name,
+              detail: system.title,
+              documentation: system.summary,
+            }))
+          );
           return helpSystemCompletions
             .filter((c) => !systemPrefix || c.label.startsWith(systemPrefix))
             .map((c) => {
               const item = new vscode.CompletionItem(
                 c.label,
-                c.kind ?? vscode.CompletionItemKind.Reference
+                vscode.CompletionItemKind.Reference
               );
               item.insertText = c.insertText;
               item.detail = c.detail;
@@ -622,12 +537,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (/^\s*#\w*$/.test(linePrefix) || /^\s*#$/.test(linePrefix)) {
           const directivePrefix = linePrefix.trimLeft();
-          return directiveCompletions
+          return domainInfo.directives
             .filter((c) => !directivePrefix || c.label.startsWith(directivePrefix))
             .map((c) => {
               const item = new vscode.CompletionItem(
                 c.label,
-                c.kind ?? vscode.CompletionItemKind.Keyword
+                vscode.CompletionItemKind.Keyword
               );
               item.insertText = c.insertText;
               item.detail = c.detail;
@@ -648,7 +563,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const range = doc.getWordRangeAtPosition(position, /\\[\w]*/);
         const prefix = range ? doc.getText(range) : "";
 
-        const items = completions
+        const items = domainInfo.symbolCompletions
           .filter((c) => !prefix || c.label.startsWith(prefix))
           .map((c) => {
             const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Snippet);
@@ -674,7 +589,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const range = doc.getWordRangeAtPosition(position, /[A-Za-z_][A-Za-z0-9_]*/);
       if (!range) return null;
       const word = doc.getText(range).toLowerCase();
-      const rule = ruleHovers[word];
+      const rule = tacticDocsByName(domainInfo).get(word);
       if (!rule) return null;
       const md = new vscode.MarkdownString();
       md.isTrusted = false;
@@ -685,55 +600,16 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(hoverProvider);
 
-  const keywordSet = new Set(
-    [
-      "theorem",
-      "def",
-      "using",
-      "ax",
-      "lx",
-      "rx",
-      "lleft",
-      "lright",
-      "ltensor",
-      "lplus",
-      "lpar",
-      "llolli",
-      "lneg",
-      "lone",
-      "lzero",
-      "lbottom",
-      "lbang",
-      "lwhynot",
-      "rwith",
-      "rtensor",
-      "rplusl",
-      "rplusr",
-      "rpar",
-      "rlolli",
-      "rneg",
-      "rone",
-      "rbottom",
-      "rtop",
-      "rbang",
-      "rwhynot",
-      "wbang",
-      "wwhynot",
-      "cbang",
-      "cwhynot",
-      "cut",
-      "type_intro",
-      "type_apply",
-      "exact",
-    ].map((k) => k.toLowerCase())
-  );
-  const operatorRe = /[⊗⊕&!:]/g;
-
   const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider(
     { language: "mypa" },
     {
       provideDocumentSemanticTokens(doc) {
         const builder = new vscode.SemanticTokensBuilder(semanticLegend);
+        const keywordSet = new Set(domainInfo.keywords.map((k) => k.toLowerCase()));
+        const operatorRe =
+          domainInfo.operators.length > 0
+            ? new RegExp(domainInfo.operators.map(escapeRegExp).join("|"), "g")
+            : undefined;
 
         for (let line = 0; line < doc.lineCount; line++) {
           const text = doc.lineAt(line).text;
@@ -750,10 +626,12 @@ export async function activate(context: vscode.ExtensionContext) {
             builder.push(line, start, firstWord.length, semanticTokenTypes.indexOf("keyword"), 0);
           }
 
-          operatorRe.lastIndex = 0;
-          let m: RegExpExecArray | null;
-          while ((m = operatorRe.exec(text))) {
-            builder.push(line, m.index, 1, semanticTokenTypes.indexOf("operator"), 0);
+          if (operatorRe) {
+            operatorRe.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = operatorRe.exec(text))) {
+              builder.push(line, m.index, m[0].length, semanticTokenTypes.indexOf("operator"), 0);
+            }
           }
         }
 

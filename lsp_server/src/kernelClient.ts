@@ -1,6 +1,6 @@
 import * as path from "path";
 import { spawnSync } from "child_process";
-import { CheckDocumentParams, KernelCheckResponse } from "./backendProtocol";
+import { CheckDocumentParams, DomainInfo, KernelCheckResponse } from "./types";
 
 const emptyDisplay = {
   title: "Lean Backend",
@@ -29,16 +29,26 @@ function protocolError(message: string): KernelCheckResponse {
   };
 }
 
+function emptyDomainInfo(): DomainInfo {
+  return {
+    symbolCompletions: [],
+    directives: [],
+    systems: [],
+    keywords: [],
+    operators: [],
+  };
+}
+
 export class KernelClient {
   constructor(private readonly kernelPath = process.env.PROVER_KERNEL_PATH || defaultKernelPath()) {}
 
-  checkDocument(params: CheckDocumentParams): KernelCheckResponse {
+  private callKernel(method: string, params?: unknown): unknown {
     const requestId = `req:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const input = JSON.stringify({
       jsonrpc: "2.0",
       id: requestId,
-      method: "checkDocument",
-      params,
+      method,
+      params: params ?? null,
     }) + "\n";
 
     const result = spawnSync(this.kernelPath, {
@@ -97,15 +107,25 @@ export class KernelClient {
 
     if (payload.error) {
       const message = typeof payload.error.message === "string" ? payload.error.message : "Kernel RPC error";
-      const code = typeof payload.error.code === "number" ? `KERNEL_RPC_${payload.error.code}` : "KERNEL_RPC";
+      throw new Error(message);
+    }
+
+    return payload.result;
+  }
+
+  checkDocument(params: CheckDocumentParams): KernelCheckResponse {
+    let rpcResult: any;
+    try {
+      rpcResult = this.callKernel("checkDocument", params);
+    } catch (err) {
       return {
         diagnostics: [
           {
             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
             severity: 1,
-            code,
+            code: "KERNEL_RPC",
             source: "kernel",
-            message,
+            message: (err as Error).message,
           },
         ],
         goals: [],
@@ -114,7 +134,6 @@ export class KernelClient {
       };
     }
 
-    const rpcResult = payload.result;
     if (
       !rpcResult ||
       !Array.isArray(rpcResult.diagnostics) ||
@@ -134,5 +153,25 @@ export class KernelClient {
       display: rpcResult.display,
       theoremStatuses: rpcResult.theoremStatuses,
     };
+  }
+
+  getDomainInfo(): DomainInfo {
+    let rpcResult: any;
+    try {
+      rpcResult = this.callKernel("domainInfo");
+    } catch {
+      return emptyDomainInfo();
+    }
+    if (
+      !rpcResult ||
+      !Array.isArray(rpcResult.symbolCompletions) ||
+      !Array.isArray(rpcResult.directives) ||
+      !Array.isArray(rpcResult.systems) ||
+      !Array.isArray(rpcResult.keywords) ||
+      !Array.isArray(rpcResult.operators)
+    ) {
+      return emptyDomainInfo();
+    }
+    return rpcResult;
   }
 }

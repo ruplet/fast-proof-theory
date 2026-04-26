@@ -1,9 +1,8 @@
 # fast-proof-theory
 
-A proof assistant for multiple weird logics. We allow to choose between reasoning in Intuitionistic Propositional Logic,
-Classical Propositional Logic, variants of Linear Logic, and in pure Calculus of Constructions treated as a logic.
-We also sometimes provide multiple versions of the same logic - e.g. adding it in natural deduction or in gentzen sequent
-calculus style.
+A proof assistant for multiple weird logics. We allow you to choose between concrete proof systems such as `NJp`,
+`NKp`, the linear logic variants, and `SYSTEM_F`. We also sometimes provide multiple versions of the same logic in
+natural deduction or Gentzen sequent-calculus style.
 
 In this project, we have a few components:
 
@@ -32,7 +31,8 @@ refactored into the uniform `Core` layer described in
 Inside `lean_backend/FastProofTheory/`, the current linear-logic prototype is split so proof search can evolve independently from kernel checking:
 
 - `FastProofTheory/Linear/Engine.lean` = snapshots, parsing, proof-state engine
-- `FastProofTheory/Linear/Kernel.lean` = tiny certificate checker boundary
+- `FastProofTheory/Gentzen/Kernel.lean` = trusted Gentzen certificate checker boundary
+- `FastProofTheory/Linear/Kernel.lean` = linear-logic facade over the Gentzen checker
 - `FastProofTheory/Linear/Tactics/Interface.lean` = tactic interface
 - `FastProofTheory/Linear/Tactics/Search.lean` = proof-search tactic entry point
 
@@ -42,6 +42,8 @@ The current linear backend supports one kernel with profile restrictions:
 - `LL!` / `LL EXP` = linear logic with exponentials
 
 ## Proof Profile Syntax
+
+The `p` suffix means propositional. Absence of `p` is reserved for first-order systems with quantifiers.
 
 For the linear backend, theorem headers currently support:
 
@@ -53,7 +55,13 @@ Examples:
 
 - `theorem T using LL in GENTZEN with LL`
 - `theorem T using LL! in GENTZEN with LL!`
-- `theorem T using LL! in GENTZEN with LL!`
+- `theorem T using NJp with IMP`
+- `theorem T using NJp`
+- `theorem T using NKp`
+
+System F now uses an explicit typed-term judgment in theorem headers, for example:
+
+- `theorem id using SYSTEM_F in ND : (\x : p. x) has_type p -> p := by`
 
 ## 1) Build Lean backend
 
@@ -189,5 +197,5 @@ If `npm install` fails due to network restrictions, rerun once registry access i
 
 ## TODO
 
-- Formalize proper Heyting algebra semantics for IPC using Mathlib's `Mathlib.Order.Heyting.Basic`.
-- Prove soundness and completeness of propositional IPC with respect to that semantics.
+- Formalize proper Heyting algebra semantics for NJp using Mathlib's `Mathlib.Order.Heyting.Basic`.
+- Prove soundness and completeness of propositional NJp with respect to that semantics.

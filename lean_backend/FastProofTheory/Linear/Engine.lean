@@ -1,9 +1,9 @@
-import FastProofTheory.Linear.Profile
+import FastProofTheory.DeclaredSystem
 import FastProofTheory.Linear.Kernel
 import FastProofTheory.Linear.Syntax
 import FastProofTheory.ND.Kernel
-import FastProofTheory.SystemF.Kernel
 import FastProofTheory.SystemF.Syntax
+import Logic.SystemF.Typing
 
 namespace FastProofTheory.Linear
 
@@ -21,8 +21,8 @@ deriving Inhabited, Repr
 
 structure ParsedTheorem where
   name : String := "theorem"
-  profileText : String := "LL"
-  profile? : Option Profile := some .withoutExponentials
+  systemText : String := "LL"
+  declaredSystem? : Option DeclaredSystem := some (.gentzen (.linearLogic .ll))
   statement? : Option NumberedText := none
   headerError? : Option String := none
   hypotheses : List NumberedText := []
@@ -35,11 +35,6 @@ deriving Inhabited, Repr
 structure Snapshot where
   theorem? : Option ParsedTheorem := none
   sourceLines : List SourceLine := []
-deriving Inhabited, Repr
-
-inductive Command where
-  | requestState (cursorLine : Nat)
-  | applyTactic (goalId : String) (name : String) (args : List String := [])
 deriving Inhabited, Repr
 
 structure EngineGoal where
@@ -195,7 +190,7 @@ private def isGentzenProfileText (text : String) : Bool :=
   let upper := text.toUpper
   upper.contains "GENTZEN"
 
-def theoremHeader? (line : String) : Option (String × String × Option Profile × Option String × Option String) :=
+def theoremHeader? (line : String) : Option (String × String × Option DeclaredSystem × Option String × Option String) :=
   let trimmed := trimLine line
   let shortHeader? :=
     if trimmed.contains ':' then
@@ -206,8 +201,14 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
           some ("theorem", "", none, none, some "Theorem statement must be written explicitly in the header.")
       | "theorem" :: name :: [] =>
           some (name, "", none, none, some "Theorem statement must be written explicitly in the header.")
-      | "theorem" :: name :: "using" :: profileTokens =>
-          some (name, String.intercalate " " profileTokens, parseSupportedProfileTokens? profileTokens, none, some "Theorem statement must be written explicitly in the header.")
+      | "theorem" :: name :: "using" :: systemTokens =>
+          let systemText := String.intercalate " " systemTokens
+          match parseDeclaredSystemTokens systemTokens with
+          | .ok declaredSystem =>
+              let headerError? := declaredSystem.validationMessage?
+              some (name, systemText, some declaredSystem, none, headerError? <|> some "Theorem statement must be written explicitly in the header.")
+          | .error err =>
+              some (name, systemText, none, none, some err)
       | _ => none
   match shortHeader? with
   | some header => some header
@@ -233,21 +234,25 @@ def theoremHeader? (line : String) : Option (String × String × Option Profile 
               | none => none
               | some (beforeColon, afterColon) =>
                   let beforeTokens := splitWords (trimLine beforeColon)
-                  let (profileText, profile?) :=
+                  let (systemText, declaredSystem?, systemError?) :=
                     match beforeTokens with
                     | "using" :: tokens =>
                         let txt := String.intercalate " " tokens
-                        (txt, parseSupportedProfileTokens? tokens)
-                    | _ => ("", none)
+                        match parseDeclaredSystemTokens tokens with
+                        | .ok system => (txt, some system, none)
+                        | .error err => (txt, none, some err)
+                    | _ => ("", none, none)
                   let statementText := stripBySuffix afterColon
                   let headerError? :=
-                    if profileText.isEmpty then
-                      some "Declare the full logic explicitly, for example `using IPC in ND with IPC_FULL`, `using LL in GENTZEN with LL`, or `using SYSTEM_F in ND`."
-                    else if profile?.isNone then
-                      some "Unsupported logic specification. Use one of: `LL in GENTZEN with LL`, `LL! in GENTZEN with LL!`, `IPC in ND with IPC_IMP|IPC_PROP|IPC_FULL`, `CPC in ND with CPC_PROP|CPC_FULL`, or `SYSTEM_F in ND`."
+                    if systemText.isEmpty then
+                      some "Declare the full logic explicitly, for example `using NJp`, `using NJp with IMP`, `using NKp`, `using LL in GENTZEN with LL`, or `using SYSTEM_F in ND`."
+                    else if let some err := systemError? then
+                      some err
                     else
-                      none
-                  some (name, profileText, profile?, some statementText, headerError?)
+                      match declaredSystem? with
+                      | some declaredSystem => declaredSystem.validationMessage?
+                      | none => none
+                  some (name, systemText, declaredSystem?, some statementText, headerError?)
 
 def tacticDecl? (line : String) : Option String :=
   let trimmed := trimLine line
@@ -289,15 +294,15 @@ def parseDocument (text : String) : ParseResult :=
           loop rest (lineNo + 1) current? errors theorems
         else
           match theoremHeader? raw with
-          | some (name, profileText, profile?, statementText?, headerError?) =>
+          | some (name, systemText, declaredSystem?, statementText?, headerError?) =>
               let theorems :=
                 match current? with
                 | some current => theorems ++ [current]
                 | none => theorems
               let current : ParsedTheorem := {
                 name := name
-                profileText := profileText
-                profile? := profile?
+                systemText := systemText
+                declaredSystem? := declaredSystem?
                 statement? := statementText?.map fun text => { line := lineNo, text := text }
                 headerError? := headerError?
                 firstLine := lineNo
@@ -407,7 +412,7 @@ def snapshotAtCursor (text : String) (cursorLine cursorCharacter : Nat) : Snapsh
     | none => none
   { theorem?, sourceLines }
 
-private def parseHypothesisLine (profile : Profile) (entry : NumberedText) : Except EngineError NamedHyp := do
+private def parseHypothesisLine (system : DeclaredSystem) (entry : NumberedText) : Except EngineError NamedHyp := do
   let trimmed := trimLine entry.text
   let after := trimLine (String.ofList (trimmed.toList.drop 3))
   let parts := after.splitOn ":"
@@ -415,7 +420,7 @@ private def parseHypothesisLine (profile : Profile) (entry : NumberedText) : Exc
   | [lhs, rhs] =>
       let name := trimLine lhs
       let formulaText := trimLine rhs
-      match parseFormula profile formulaText with
+      match parseFormula system formulaText with
       | .ok formula => pure { name, formula, sourceLine := entry.line }
       | .error err =>
           throw {
@@ -432,10 +437,10 @@ private def parseHypothesisLine (profile : Profile) (entry : NumberedText) : Exc
         message := "Hypothesis must have the form `hyp <name> : <formula>`."
       }
 
-private def parseGoalLine (profile : Profile) (entry : NumberedText) : Except EngineError Formula := do
+private def parseGoalLine (system : DeclaredSystem) (entry : NumberedText) : Except EngineError Formula := do
   let trimmed := trimLine entry.text
   let formulaText := trimLine (String.ofList (trimmed.toList.drop 4))
-  match parseFormula profile formulaText with
+  match parseFormula system formulaText with
   | .ok formula => pure formula
   | .error err =>
       throw {
@@ -445,8 +450,8 @@ private def parseGoalLine (profile : Profile) (entry : NumberedText) : Except En
         message := s!"Invalid goal formula `{formulaText}`: {err}"
       }
 
-private def parseStatementGoal (profile : Profile) (entry : NumberedText) : Except EngineError Formula := do
-  match parseTheoremStatement profile entry.text with
+private def parseStatementGoal (system : DeclaredSystem) (entry : NumberedText) : Except EngineError Formula := do
+  match parseTheoremStatement system entry.text with
   | Except.ok formula => pure formula
   | Except.error err =>
       throw {
@@ -935,16 +940,16 @@ private def introGoal (goal : GoalState) (args : List String) :
         message := "intro applies only to linear implication goals."
       }
 
-private partial def normalize (profile : Profile) (state : ExecutionState) :
+private partial def normalize (logic : FastProofTheory.Gentzen.LinearLogic) (state : ExecutionState) :
     Except EngineError ExecutionState := do
   match state.work with
   | WorkItem.finishTensor goal split :: rest =>
       match state.solved with
       | right :: left :: solvedRest =>
           let certificate := Certificate.tensorIntro split left.certificate right.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -963,9 +968,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | right :: left :: solvedRest =>
           let certificate := Certificate.withIntro left.certificate right.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -984,9 +989,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.lolliIntro body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1005,9 +1010,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.plusLeft body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1026,9 +1031,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.plusRight body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1047,9 +1052,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.bangIntro body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1068,9 +1073,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.withLeft1 focus body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1089,9 +1094,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.withLeft2 focus body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1110,9 +1115,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.tensorLeft focus body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1131,9 +1136,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | right :: left :: solvedRest =>
           let certificate := Certificate.plusLeftElim focus left.certificate right.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1152,9 +1157,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | right :: left :: solvedRest =>
           let certificate := Certificate.lolliLeft focus split left.certificate right.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1173,9 +1178,9 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
       match state.solved with
       | body :: solvedRest =>
           let certificate := Certificate.bangLeft focus body.certificate
-          match checkCertificate profile (goalToKernel goal) certificate with
+          match checkCertificate logic (goalToKernel goal) certificate with
           | .ok checked =>
-              normalize profile { state with work := rest, solved := checked :: solvedRest }
+              normalize logic { state with work := rest, solved := checked :: solvedRest }
           | .error err =>
               throw {
                 line := goal.sourceLine
@@ -1192,16 +1197,16 @@ private partial def normalize (profile : Profile) (state : ExecutionState) :
           }
   | _ => pure state
 
-private def applyTactic (profile : Profile) (tactic : ParsedTactic) (state : ExecutionState) :
+private def applyTactic (logic : FastProofTheory.Gentzen.LinearLogic) (tactic : ParsedTactic) (state : ExecutionState) :
     Except EngineError ExecutionState := do
-  let state <- normalize profile state
+  let state <- normalize logic state
   match state.work with
   | WorkItem.goal goal :: rest =>
       match tactic.name with
       | "ax" =>
           let cert <- resolveAxiomCertificate goal tactic.args
-          match checkCertificate profile (goalToKernel goal) cert with
-          | .ok checked => normalize profile { state with work := rest, solved := checked :: state.solved }
+          match checkCertificate logic (goalToKernel goal) cert with
+          | .ok checked => normalize logic { state with work := rest, solved := checked :: state.solved }
           | .error err =>
               throw {
                 line := tactic.sourceLine
@@ -1695,14 +1700,14 @@ private def ndAbsurdCloses (goal : NDGoalState) (tactic : ParsedTactic) :
         message := s!"Unknown hypothesis `{name}`."
       }
 
-private def ndByContraGoal (profile : Profile) (goal : NDGoalState) (tactic : ParsedTactic) :
+private def ndByContraGoal (system : FastProofTheory.NaturalDeduction.System) (goal : NDGoalState) (tactic : ParsedTactic) :
     Except EngineError NDGoalState := do
-  unless profile.isCPC do
+  unless system.isNKp do
     throw {
       line := tactic.sourceLine
       severity := 1
       code := "LEAN_BACKEND_ND_BY_CONTRA"
-      message := "by_contra is available only in CPC."
+      message := "by_contra is available only in NKp."
     }
   let hypName := tactic.args.head?.getD s!"h{goal.hypotheses.length + 1}"
   if goal.hypotheses.any (fun hyp => hyp.name = hypName) then
@@ -1719,7 +1724,7 @@ private def ndByContraGoal (profile : Profile) (goal : NDGoalState) (tactic : Pa
     target := .bot
   }
 
-private def applyNDTactic (profile : Profile) (tactic : ParsedTactic) (goals : List NDGoalState) :
+private def applyNDTactic (ndSystem : FastProofTheory.NaturalDeduction.System) (tactic : ParsedTactic) (goals : List NDGoalState) :
     Except EngineError (List NDGoalState) := do
   match goals with
   | [] =>
@@ -1766,7 +1771,7 @@ private def applyNDTactic (profile : Profile) (tactic : ParsedTactic) (goals : L
           let _ <- ndAbsurdCloses goal tactic
           pure rest
       | "by_contra" =>
-          let next <- ndByContraGoal profile goal tactic
+          let next <- ndByContraGoal ndSystem goal tactic
           pure (next :: rest)
       | other =>
           throw {
@@ -2064,7 +2069,7 @@ private partial def buildNDCertificate (goal : NDCertGoal) (tactics : List Parse
           }
 
 private def certifyNDTheorem
-    (profile : Profile)
+    (ndSystem : FastProofTheory.NaturalDeduction.System)
     (target : Formula)
     (tactics : List ParsedTactic) :
     Except EngineError FastProofTheory.ND.CheckedCertificate := do
@@ -2077,7 +2082,7 @@ private def certifyNDTheorem
       code := "LEAN_BACKEND_ND_CERTIFICATE"
       message := "The certificate closed before all tactic lines were consumed."
     }
-  match FastProofTheory.ND.checkClosedTheorem profile target certificate with
+  match FastProofTheory.ND.checkClosedTheorem ndSystem target certificate with
   | .ok checked => pure checked
   | .error err =>
       throw {
@@ -2087,108 +2092,98 @@ private def certifyNDTheorem
         message := FastProofTheory.ND.renderKernelError err
       }
 
-private partial def renderSystemFTy : FastProofTheory.SystemF.SFTy → String
+private abbrev SystemFTy := Logic.SystemF.Ty
+private abbrev SystemFTm := Logic.SystemF.Tm
+private abbrev SystemFTyContext := Logic.SystemF.TyContext
+private abbrev SystemFContext := Logic.SystemF.Context
+private abbrev SystemFHasType := Logic.SystemF.HasType
+
+private structure SystemFGoal where
+  tyContext : SystemFTyContext
+  context : SystemFContext
+  term : SystemFTm
+  target : SystemFTy
+
+private partial def renderSystemFTy : SystemFTy → String
   | .var name => name
   | .arr a b => s!"({renderSystemFTy a} -> {renderSystemFTy b})"
   | .all name body => s!"forall {name}. {renderSystemFTy body}"
 
-private def systemFGoalToEngineGoal (goal : FastProofTheory.SystemF.Goal) : EngineGoal :=
+private partial def renderSystemFTm : SystemFTm → String
+  | .var name => name
+  | .lam name ty body => s!"(\\{name} : {renderSystemFTy ty}. {renderSystemFTm body})"
+  | .app fn arg => s!"({renderSystemFTm fn} {renderSystemFTm arg})"
+  | .tyLam name body => s!"(Λ{name}. {renderSystemFTm body})"
+  | .tyApp fn ty => s!"({renderSystemFTm fn} [{renderSystemFTy ty}])"
+
+private def renderSystemFTyContext (Δ : SystemFTyContext) : String :=
+  if Δ.isEmpty then "·" else String.intercalate ", " Δ
+
+private def renderSystemFContext (Γ : SystemFContext) : String :=
+  if Γ.isEmpty then "·" else String.intercalate ", " (Γ.map (fun (name, ty) => s!"{name} : {renderSystemFTy ty}"))
+
+private def systemFGoalToEngineGoal (goal : SystemFGoal) : EngineGoal :=
   {
     id := "systemf"
-    hypotheses := goal.context.map (fun (name, ty) => s!"{name} : {renderSystemFTy ty}")
-    target := renderSystemFTy goal.target
+    hypotheses := [s!"Δ = {renderSystemFTyContext goal.tyContext}", s!"Γ = {renderSystemFContext goal.context}"]
+    target := s!"{renderSystemFTyContext goal.tyContext} ; {renderSystemFContext goal.context} ⊢ {renderSystemFTm goal.term} : {renderSystemFTy goal.target}"
   }
 
 inductive SystemFElabOutcome where
-  | closed (term : FastProofTheory.SystemF.SFTm)
-  | pending (goal : FastProofTheory.SystemF.Goal)
+  | closed
+  | pending (goal : SystemFGoal)
 
 private partial def buildSystemFCertificate
-    (goal : FastProofTheory.SystemF.Goal)
+    (goal : SystemFGoal)
     (tactics : List ParsedTactic) :
     Except EngineError (SystemFElabOutcome × List ParsedTactic) := do
   match tactics with
   | [] => pure (.pending goal, [])
   | tactic :: rest =>
-      match tactic.name with
-      | "intro" =>
-          match goal.target with
-          | .arr premise body =>
-              let name := tactic.args.head?.getD s!"x{goal.context.length + 1}"
-              let (outcome, remaining) <- buildSystemFCertificate {
-                context := (name, premise) :: goal.context
-                target := body
-              } rest
-              match outcome with
-              | .closed term => pure (.closed (.lam name premise term), remaining)
-              | .pending openGoal => pure (.pending openGoal, remaining)
-          | _ =>
+      let handleVarLike (kind : String) : Except EngineError (SystemFElabOutcome × List ParsedTactic) := do
+        let name <- match tactic.args.head? with
+          | some name => pure name
+          | none =>
               throw {
                 line := tactic.sourceLine
                 severity := 1
                 code := "LEAN_BACKEND_SYSTEM_F"
-                message := "Cannot certify theorem: `intro` was used on a non-function goal."
+                message := s!"Cannot certify theorem: `{kind}` requires a variable name."
               }
-      | "type_intro" =>
-          match goal.target with
-          | .all binder body =>
-              let name := tactic.args.head?.getD binder
-              unless name = binder do
-                throw {
-                  line := tactic.sourceLine
-                  severity := 1
-                  code := "LEAN_BACKEND_SYSTEM_F"
-                  message := s!"Cannot certify theorem: `type_intro` must use binder `{binder}` for this goal."
-                }
-              if name ∈ goal.context.freeTyVars then
-                throw {
-                  line := tactic.sourceLine
-                  severity := 1
-                  code := "LEAN_BACKEND_SYSTEM_F"
-                  message := s!"Cannot certify theorem: type variable `{name}` occurs free in the context."
-                }
-              let (outcome, remaining) <- buildSystemFCertificate {
-                goal with target := body
-              } rest
-              match outcome with
-              | .closed term => pure (.closed (.tyLam name term), remaining)
-              | .pending openGoal => pure (.pending openGoal, remaining)
-          | _ =>
-              throw {
-                line := tactic.sourceLine
-                severity := 1
-                code := "LEAN_BACKEND_SYSTEM_F"
-                message := "Cannot certify theorem: `type_intro` was used on a non-polymorphic goal."
-              }
-      | "assumption" | "exact" =>
-          let name <- match tactic.args.head? with
-            | some name => pure name
-            | none =>
-                throw {
-                  line := tactic.sourceLine
-                  severity := 1
-                  code := "LEAN_BACKEND_SYSTEM_F"
-                  message := s!"Cannot certify theorem: `{tactic.name}` requires a hypothesis name."
-                }
-          match goal.context.lookup? name with
-          | some ty =>
-              if Logic.SystemF.Ty.eq ty goal.target then
-                pure (.closed (.var name), rest)
+        match goal with
+        | { term := .var termName, .. } =>
+            if name = termName then
+              if goal.context.lookup? name = some goal.target then
+                pure (.closed, rest)
               else
                 throw {
                   line := tactic.sourceLine
                   severity := 1
                   code := "LEAN_BACKEND_SYSTEM_F"
-                  message := s!"Cannot certify theorem: hypothesis `{name}` does not match the current goal."
+                  message := s!"Cannot certify theorem: variable `{name}` is missing or has the wrong type."
                 }
-          | none =>
+            else
               throw {
                 line := tactic.sourceLine
                 severity := 1
                 code := "LEAN_BACKEND_SYSTEM_F"
-                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+                message := s!"Cannot certify theorem: `{kind}` must name the current variable `{termName}`."
               }
-      | "apply" =>
+        | _ =>
+            throw {
+              line := tactic.sourceLine
+              severity := 1
+              code := "LEAN_BACKEND_SYSTEM_F"
+              message := s!"Cannot certify theorem: `{kind}` was used on a non-variable goal."
+            }
+      if tactic.name = "var" then
+        handleVarLike "var"
+      else if tactic.name = "exact" then
+        handleVarLike "exact"
+      else if tactic.name = "assumption" then
+        handleVarLike "assumption"
+      else match tactic.name with
+      | "intro" =>
           let name <- match tactic.args.head? with
             | some name => pure name
             | none =>
@@ -2196,47 +2191,153 @@ private partial def buildSystemFCertificate
                   line := tactic.sourceLine
                   severity := 1
                   code := "LEAN_BACKEND_SYSTEM_F"
-                  message := "Cannot certify theorem: `apply` requires a hypothesis name."
+                  message := "Cannot certify theorem: `intro` requires a binder name."
                 }
-          match goal.context.lookup? name with
-          | some ty =>
-              match ty with
-              | .arr premise conclusion =>
-                  if Logic.SystemF.Ty.eq conclusion goal.target then
-                    let (outcome, remaining) <- buildSystemFCertificate { goal with target := premise } rest
-                    match outcome with
-                    | .closed arg => pure (.closed (.app (.var name) arg), remaining)
-                    | .pending openGoal => pure (.pending openGoal, remaining)
-                  else
-                    throw {
-                      line := tactic.sourceLine
-                      severity := 1
-                      code := "LEAN_BACKEND_SYSTEM_F"
-                      message := s!"Cannot certify theorem: hypothesis `{name}` does not conclude the current goal."
-                    }
+          match goal with
+          | { term := .lam binder ty body, target := .arr premise conclusion, .. } =>
+              unless name = binder do
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: `intro` must introduce the term binder `{binder}`."
+                }
+              if ty = premise then
+                let (outcome, remaining) <- buildSystemFCertificate {
+                  tyContext := goal.tyContext
+                  context := (binder, premise) :: goal.context
+                  term := body
+                  target := conclusion
+                } rest
+                match outcome with
+                | SystemFElabOutcome.closed =>
+                    pure (.closed, remaining)
+                | SystemFElabOutcome.pending openGoal =>
+                    pure (.pending openGoal, remaining)
+              else
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: lambda binder `{binder}` has the wrong type annotation."
+                }
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := "Cannot certify theorem: `intro` was used on a non-lambda goal."
+              }
+      | "type_intro" =>
+          let name <- match tactic.args.head? with
+            | some name => pure name
+            | none =>
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := "Cannot certify theorem: `type_intro` requires a type-variable name."
+                }
+          match goal with
+          | { term := .tyLam binder body, target := .all targetBinder bodyTy, .. } =>
+              unless name = binder do
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: `type_intro` must introduce the term binder `{binder}`."
+                }
+              if binder = targetBinder then
+                if binder ∈ goal.context.freeTyVars then
+                  throw {
+                    line := tactic.sourceLine
+                    severity := 1
+                    code := "LEAN_BACKEND_SYSTEM_F"
+                    message := s!"Cannot certify theorem: type variable `{binder}` occurs free in the context."
+                  }
+                else
+              let (outcome, remaining) <- buildSystemFCertificate {
+                tyContext := binder :: goal.tyContext
+                context := goal.context
+                term := body
+                target := bodyTy
+              } rest
+              match outcome with
+              | SystemFElabOutcome.closed =>
+                  pure (.closed, remaining)
+              | SystemFElabOutcome.pending openGoal =>
+                  pure (.pending openGoal, remaining)
+              else
+                throw {
+                  line := tactic.sourceLine
+                  severity := 1
+                  code := "LEAN_BACKEND_SYSTEM_F"
+                  message := s!"Cannot certify theorem: the target type binder `{targetBinder}` must match `{binder}`."
+                }
+          | _ =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := "Cannot certify theorem: `type_intro` was used on a non-type-lambda goal."
+              }
+      | "apply" =>
+          let tyText := String.intercalate " " tactic.args
+          if tyText.isEmpty then
+            throw {
+              line := tactic.sourceLine
+              severity := 1
+              code := "LEAN_BACKEND_SYSTEM_F"
+              message := "Cannot certify theorem: `apply` requires a type argument."
+            }
+          match FastProofTheory.SystemF.Syntax.parseType tyText with
+          | .error msg =>
+              throw {
+                line := tactic.sourceLine
+                severity := 1
+                code := "LEAN_BACKEND_SYSTEM_F"
+                message := s!"Cannot certify theorem: invalid type argument: {msg}"
+              }
+          | .ok tyArg =>
+              match goal with
+              | { term := .app fn arg, .. } =>
+                  let (outcomeFn, remainingFn) <- buildSystemFCertificate {
+                    tyContext := goal.tyContext
+                    context := goal.context
+                    term := fn
+                    target := .arr tyArg goal.target
+                  } rest
+                  match outcomeFn with
+                  | SystemFElabOutcome.closed =>
+                      let (outcomeArg, remainingArg) <- buildSystemFCertificate {
+                        tyContext := goal.tyContext
+                        context := goal.context
+                        term := arg
+                        target := tyArg
+                      } remainingFn
+                      match outcomeArg with
+                      | SystemFElabOutcome.closed =>
+                          pure (.closed, remainingArg)
+                      | SystemFElabOutcome.pending openGoal =>
+                          pure (.pending openGoal, remainingArg)
+                  | SystemFElabOutcome.pending openGoal =>
+                      pure (.pending openGoal, remainingFn)
               | _ =>
                   throw {
                     line := tactic.sourceLine
                     severity := 1
                     code := "LEAN_BACKEND_SYSTEM_F"
-                    message := "Cannot certify theorem: `apply` requires a function-type hypothesis."
+                    message := "Cannot certify theorem: `apply` was used on a non-application goal."
                   }
-          | none =>
-              throw {
-                line := tactic.sourceLine
-                severity := 1
-                code := "LEAN_BACKEND_SYSTEM_F"
-                message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
-              }
       | "type_apply" =>
-          let name <- match tactic.args.head? with
-            | some name => pure name
+          let binder <- match tactic.args.head? with
+            | some binder => pure binder
             | none =>
                 throw {
                   line := tactic.sourceLine
                   severity := 1
                   code := "LEAN_BACKEND_SYSTEM_F"
-                  message := "Cannot certify theorem: `type_apply` requires a hypothesis name."
+                  message := "Cannot certify theorem: `type_apply` requires a type variable name."
                 }
           let tyText := String.intercalate " " (tactic.args.drop 1)
           if tyText.isEmpty then
@@ -2254,57 +2355,43 @@ private partial def buildSystemFCertificate
                 code := "LEAN_BACKEND_SYSTEM_F"
                 message := s!"Cannot certify theorem: invalid type argument: {msg}"
               }
-          | .ok tyArg =>
-              match goal.context.lookup? name with
-              | some ty =>
-                  match ty with
-                  | .all binder body =>
-                      match Logic.SystemF.Ty.subst? binder tyArg body with
-                      | .ok instantiated =>
-                          match instantiated with
-                          | .arr premise conclusion =>
-                              if Logic.SystemF.Ty.eq conclusion goal.target then
-                                let (outcome, remaining) <- buildSystemFCertificate { goal with target := premise } rest
-                                match outcome with
-                                | .closed arg => pure (.closed (.app (.tyApp (.var name) tyArg) arg), remaining)
-                                | .pending openGoal => pure (.pending openGoal, remaining)
-                              else
-                                throw {
-                                  line := tactic.sourceLine
-                                  severity := 1
-                                  code := "LEAN_BACKEND_SYSTEM_F"
-                                  message := s!"Cannot certify theorem: instantiated hypothesis `{name}` does not conclude the current goal."
-                                }
-                          | _ =>
-                              if Logic.SystemF.Ty.eq instantiated goal.target then
-                                pure (.closed (.tyApp (.var name) tyArg), rest)
-                              else
-                                throw {
-                                  line := tactic.sourceLine
-                                  severity := 1
-                                  code := "LEAN_BACKEND_SYSTEM_F"
-                                  message := s!"Cannot certify theorem: instantiated hypothesis `{name}` does not match the current goal."
-                                }
-                      | .error msg =>
-                          throw {
-                            line := tactic.sourceLine
-                            severity := 1
-                            code := "LEAN_BACKEND_SYSTEM_F"
-                            message := s!"Cannot certify theorem: invalid type application: {msg}"
-                          }
-                  | _ =>
+          | .ok bodyTy =>
+              match goal with
+              | { term := .tyApp fn tyArg, .. } =>
+                  match Logic.SystemF.Ty.subst? binder tyArg bodyTy with
+                  | .ok instantiated =>
+                      if instantiated = goal.target then
+                        let (outcome, remaining) <- buildSystemFCertificate {
+                          tyContext := goal.tyContext
+                          context := goal.context
+                          term := fn
+                          target := .all binder bodyTy
+                        } rest
+                        match outcome with
+                        | SystemFElabOutcome.closed =>
+                            pure (.closed, remaining)
+                        | SystemFElabOutcome.pending openGoal =>
+                            pure (.pending openGoal, remaining)
+                      else
+                        throw {
+                          line := tactic.sourceLine
+                          severity := 1
+                          code := "LEAN_BACKEND_SYSTEM_F"
+                          message := s!"Cannot certify theorem: instantiated type `{renderSystemFTy instantiated}` does not match the current goal."
+                        }
+                  | .error msg =>
                       throw {
                         line := tactic.sourceLine
                         severity := 1
                         code := "LEAN_BACKEND_SYSTEM_F"
-                        message := "Cannot certify theorem: `type_apply` requires a polymorphic hypothesis."
+                        message := s!"Cannot certify theorem: invalid type application: {msg}"
                       }
-              | none =>
+              | _ =>
                   throw {
                     line := tactic.sourceLine
                     severity := 1
                     code := "LEAN_BACKEND_SYSTEM_F"
-                    message := s!"Cannot certify theorem: unknown hypothesis `{name}`."
+                    message := "Cannot certify theorem: `type_apply` was used on a non-type-application goal."
                   }
       | other =>
           throw {
@@ -2315,10 +2402,10 @@ private partial def buildSystemFCertificate
           }
 
 private def certifySystemFTheorem
-    (target : FastProofTheory.SystemF.SFTy)
+    (goal : SystemFGoal)
     (tactics : List ParsedTactic) :
     Except EngineError (SystemFElabOutcome × List ParsedTactic) := do
-  buildSystemFCertificate { context := [], target } tactics
+  buildSystemFCertificate goal tactics
 
 private def evaluateNDTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError := Id.run do
@@ -2332,28 +2419,29 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
       }
       return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | none =>
-      match thm.profile? with
+      match thm.declaredSystem? with
       | none =>
           let err := {
             line := thm.firstLine
             severity := 1
-            code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+            code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
             message := "Every theorem must declare a complete supported logic specification."
           }
           return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-      | some profile =>
-          if !(profile.isNaturalDeduction && (profile.isIPC || profile.isCPC) && profile.hasValidConfiguration) then
+      | some declaredSystem =>
+          match declaredSystem.toNDSystem? with
+          | none =>
             let err := {
               line := thm.firstLine
               severity := 1
-              code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-              message := "Only supported ND logic specifications are accepted by the checked ND engine."
+              code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
+              message := "Only `NJp`, `NJp with IMP`, and `NKp` are accepted by the checked ND engine."
             }
             ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-          else
+          | some ndSystem =>
             let goalEntries := thm.statement?.map List.singleton |>.getD []
             let goalsE := goalEntries.map (fun entry =>
-              match parseStatementGoal profile entry with
+              match parseStatementGoal declaredSystem entry with
               | Except.ok f => Except.ok (entry.line, f)
               | Except.error e => Except.error e)
             let tactics := thm.tactics.map parseTacticLine
@@ -2362,13 +2450,13 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                 ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
             | none =>
                 let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
-                match goals.find? (fun (_, target) => !profile.allowsFormula target) with
+                match goals.find? (fun (_, target) => !declaredSystem.allowsFormula target) with
                 | some (line, _) =>
                     let err := {
                       line := line
                       severity := 1
                       code := "LEAN_BACKEND_ND_FORMULA"
-                      message := s!"The theorem statement is not in the language of {profile.displayName}."
+                      message := s!"The theorem statement is not in the language of {declaredSystem.displayName}."
                     }
                     ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
                 | none =>
@@ -2383,7 +2471,7 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                   match remaining with
                   | [] => (stateGoals, none)
                   | tactic :: rest =>
-                      match applyNDTactic profile tactic stateGoals with
+                      match applyNDTactic ndSystem tactic stateGoals with
                       | .ok next => runTactics next rest
                       | .error err => (stateGoals, some err)
                 let (openGoalsState, tacticErr?) := runTactics initialGoals tactics
@@ -2396,9 +2484,9 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                     if verified then
                       match goals with
                       | [(_, target)] =>
-                          match certifyNDTheorem profile target tactics with
+                          match certifyNDTheorem ndSystem target tactics with
                           | .ok _ =>
-                              let status := s!"Theorem {thm.name} verified in profile {profile.displayName}."
+                              let status := s!"Theorem {thm.name} verified in system {declaredSystem.displayName}."
                               ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified := true }, [])
                           | .error err =>
                               ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
@@ -2411,7 +2499,7 @@ private def evaluateNDTheorem (thm : ParsedTheorem) :
                           }
                           ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
                     else
-                      let status := s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
+                      let status := s!"Theorem {thm.name} in system {declaredSystem.displayName}. Open goals: {openGoals.length}."
                       let warnings := [{
                         line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
                         severity := 1
@@ -2432,89 +2520,93 @@ private def evaluateLinearTheorem (thm : ParsedTheorem) :
       }
       return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | none =>
-      match thm.profile? with
-  | none =>
-      let err := {
-        line := thm.firstLine
-        severity := 1
-        code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-        message := "Every theorem must declare a complete supported logic specification."
-      }
-      return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-  | some profile =>
-      if !(profile.isLinearGentzen && profile.hasValidConfiguration) then
-        let err := {
-          line := thm.firstLine
-          severity := 1
-          code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-          message := "Only supported linear Gentzen logic specifications are accepted by the checked linear engine."
-        }
-        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-      else
-        let hypsE := thm.hypotheses.map (parseHypothesisLine profile)
-        let goalEntries :=
-          if thm.goals.isEmpty then
-            thm.statement?.map List.singleton |>.getD []
-          else
-            thm.goals
-        let goalsE := goalEntries.map (fun entry =>
-          match parseGoalLine profile entry with
-          | Except.ok f => Except.ok (entry.line, f)
-          | Except.error e => Except.error e)
-        let goalsE :=
-          if thm.goals.isEmpty then
-            goalEntries.map (fun entry =>
-              match parseStatementGoal profile entry with
-              | Except.ok f => Except.ok (entry.line, f)
-              | Except.error e => Except.error e)
-          else goalsE
-        let tactics := thm.tactics.map parseTacticLine
-        match hypsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
-        | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-        | none =>
-            match goalsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
-            | some err => ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-            | none =>
-                let hyps := hypsE.filterMap (fun | Except.ok h => some h | Except.error _ => none)
-                let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
-                let initial : ExecutionState := { work := initialGoals thm hyps goals, solved := [], nextGoalIndex := goals.length + 1 }
-                let rec runTactics (state : ExecutionState) (remaining : List ParsedTactic) :
-                    ExecutionState × Option EngineError :=
-                  match remaining with
-                  | [] => (state, none)
-                  | tactic :: rest =>
-                      match applyTactic profile tactic state with
-                      | Except.ok next => runTactics next rest
-                      | Except.error err => (state, some err)
-                let (preFinal, tacticErr?) := runTactics initial tactics
-                match tacticErr? with
-                | some err =>
-                    let openGoals := openGoalsFromWork preFinal.work
-                    ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
-                | none =>
-                    match normalize profile preFinal with
-                    | Except.error err =>
-                        let openGoals := openGoalsFromWork preFinal.work
-                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
-                    | Except.ok st =>
-                        let openGoals := openGoalsFromWork st.work
-                        let verified := openGoals.isEmpty
-                        let status :=
-                          if verified then
-                            s!"Theorem {thm.name} verified in profile {profile.displayName}."
-                          else
-                            s!"Theorem {thm.name} in profile {profile.displayName}. Open goals: {openGoals.length}."
-                        let warnings :=
-                          if verified then
-                            []
-                          else
-                            [{
-                              line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
-                              severity := 1
-                              code := "LEAN_BACKEND_OPEN_GOALS"
-                              message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
-                            }]
-                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
+      match thm.declaredSystem? with
+      | none =>
+          let err := {
+            line := thm.firstLine
+            severity := 1
+            code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
+            message := "Every theorem must declare a complete supported logic specification."
+          }
+          return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+      | some declaredSystem =>
+          match declaredSystem with
+          | .gentzen (.linearLogic logic) =>
+              let hypsE := thm.hypotheses.map (parseHypothesisLine declaredSystem)
+              let goalEntries :=
+                if thm.goals.isEmpty then
+                  thm.statement?.map List.singleton |>.getD []
+                else
+                  thm.goals
+              let goalsE := goalEntries.map (fun entry =>
+                match parseGoalLine declaredSystem entry with
+                | Except.ok f => Except.ok (entry.line, f)
+                | Except.error e => Except.error e)
+              let goalsE :=
+                if thm.goals.isEmpty then
+                  goalEntries.map (fun entry =>
+                    match parseStatementGoal declaredSystem entry with
+                    | Except.ok f => Except.ok (entry.line, f)
+                    | Except.error e => Except.error e)
+                else goalsE
+              let tactics := thm.tactics.map parseTacticLine
+              match hypsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
+              | some err =>
+                  ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+              | none =>
+                  match goalsE.findSome? (fun r => match r with | Except.error e => some e | _ => none) with
+                  | some err =>
+                      ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+                  | none =>
+                      let hyps := hypsE.filterMap (fun | Except.ok h => some h | Except.error _ => none)
+                      let goals := goalsE.filterMap (fun | Except.ok g => some g | Except.error _ => none)
+                      let initial : ExecutionState := { work := initialGoals thm hyps goals, solved := [], nextGoalIndex := goals.length + 1 }
+                      let rec runTactics (state : ExecutionState) (remaining : List ParsedTactic) :
+                          ExecutionState × Option EngineError :=
+                        match remaining with
+                        | [] => (state, none)
+                        | tactic :: rest =>
+                            match applyTactic logic tactic state with
+                            | Except.ok next => runTactics next rest
+                            | Except.error err => (state, some err)
+                      let (preFinal, tacticErr?) := runTactics initial tactics
+                      match tacticErr? with
+                      | some err =>
+                          let openGoals := openGoalsFromWork preFinal.work
+                          ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                      | none =>
+                          match normalize logic preFinal with
+                          | Except.error err =>
+                              let openGoals := openGoalsFromWork preFinal.work
+                              ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status := err.message, verified := false }, [err])
+                          | Except.ok st =>
+                              let openGoals := openGoalsFromWork st.work
+                              let verified := openGoals.isEmpty
+                              let status :=
+                                if verified then
+                                  s!"Theorem {thm.name} verified in system {declaredSystem.displayName}."
+                                else
+                                  s!"Theorem {thm.name} in system {declaredSystem.displayName}. Open goals: {openGoals.length}."
+                              let warnings :=
+                                if verified then
+                                  []
+                                else
+                                  [{
+                                    line := goalEntries.head?.map (·.line) |>.getD thm.firstLine
+                                    severity := 1
+                                    code := "LEAN_BACKEND_OPEN_GOALS"
+                                    message := s!"Theorem `{thm.name}` contains open goals and is not checked as complete."
+                                  }]
+                              ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := openGoals, status, verified }, warnings)
+          | _ =>
+            let err := {
+              line := thm.firstLine
+              severity := 1
+              code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
+              message := "Accepted declarations are `LL in GENTZEN with LL` and `LL! in GENTZEN with LL!`."
+            }
+            return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
+              -- linear branch handled above
 
 private def evaluateSystemFTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError := Id.run do
@@ -2528,47 +2620,44 @@ private def evaluateSystemFTheorem (thm : ParsedTheorem) :
       }
       return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | none =>
-      match thm.profile? with
+      match thm.declaredSystem? with
       | none =>
           let err := {
             line := thm.firstLine
             severity := 1
-            code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+            code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
             message := "Every theorem must declare a complete supported logic specification."
           }
           return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-      | some profile =>
-          if !(profile.isSystemF && profile.isNaturalDeduction && profile.hasValidConfiguration) then
-            let err := {
-              line := thm.firstLine
-              severity := 1
-              code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-              message := "Only `SYSTEM_F in ND` is accepted by the System F proof-term checker."
-            }
-            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-          else
+      | some .systemF =>
             match thm.statement? with
             | none =>
                 let err := {
                   line := thm.firstLine
                   severity := 1
                   code := "LEAN_BACKEND_SYSTEM_F"
-                  message := "System F theorems must declare a target type in the header."
+                  message := "System F theorems must declare a `term has_type type` judgment in the header."
                 }
                 ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
             | some statement =>
-                match FastProofTheory.SystemF.Syntax.parseType statement.text with
+                match FastProofTheory.SystemF.Syntax.parseJudgment statement.text with
                 | .error msg =>
                     let err := {
                       line := statement.line
                       severity := 1
                       code := "LEAN_BACKEND_SYSTEM_F"
-                      message := s!"Invalid System F target type: {msg}"
+                      message := s!"Invalid System F judgment: {msg}"
                     }
                     ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-                | .ok target =>
+                | .ok judgment =>
                     let tactics := thm.tactics.map parseTacticLine
-                    match certifySystemFTheorem target tactics with
+                    let goal : SystemFGoal := {
+                      tyContext := []
+                      context := []
+                      term := judgment.term
+                      target := judgment.ty
+                    }
+                    match certifySystemFTheorem goal tactics with
                     | .error err =>
                         let diag := {
                           line := tactics.head?.map (·.sourceLine) |>.getD statement.line
@@ -2589,7 +2678,7 @@ private def evaluateSystemFTheorem (thm : ParsedTheorem) :
                           return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
                         let goals := [systemFGoalToEngineGoal openGoal]
                         ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals, status := "Open goals.", verified := false }, [])
-                    | .ok (.closed term, remaining) =>
+                    | .ok (.closed, remaining) =>
                         unless remaining.isEmpty do
                           let extraLine := remaining.head?.map (·.sourceLine) |>.getD statement.line
                           let err := {
@@ -2599,42 +2688,40 @@ private def evaluateSystemFTheorem (thm : ParsedTheorem) :
                             message := "The proof ended before all tactic lines were consumed."
                           }
                           return ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
-                        match FastProofTheory.SystemF.checkClosedTheorem target term with
-                        | .ok _ =>
-                            let status := s!"Theorem {thm.name} verified in profile {profile.displayName}."
-                            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status, verified := true }, [])
-                        | .error err =>
-                            let diag := {
-                              line := statement.line
-                              severity := 1
-                              code := "LEAN_BACKEND_SYSTEM_F_KERNEL"
-                              message := FastProofTheory.SystemF.renderKernelError err
-                            }
-                            ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := diag.message, verified := false }, [diag])
+                        let status := s!"Theorem {thm.name} verified in system SYSTEM_F."
+                        ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status, verified := true }, [])
+      | some _ =>
+          let err := {
+            line := thm.firstLine
+            severity := 1
+            code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
+            message := "Only `SYSTEM_F in ND` is accepted by the System F natural-deduction checker."
+          }
+          ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
 
 private def evaluateTheorem (thm : ParsedTheorem) :
     EngineState × List EngineError :=
-  match thm.profile? with
-  | some profile =>
-      if profile.isLinearGentzen && profile.hasValidConfiguration then
+  match thm.declaredSystem? with
+  | some declaredSystem =>
+      if declaredSystem.isLinearGentzen && declaredSystem.hasValidConfiguration then
         evaluateLinearTheorem thm
-      else if profile.isSystemF && profile.hasValidConfiguration then
+      else if declaredSystem.isSystemF && declaredSystem.hasValidConfiguration then
         evaluateSystemFTheorem thm
-      else if profile.isNaturalDeduction && profile.hasValidConfiguration then
+      else if declaredSystem.toNDSystem?.isSome && declaredSystem.hasValidConfiguration then
         evaluateNDTheorem thm
       else
         let err := {
           line := thm.firstLine
           severity := 1
-          code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
-          message := s!"Logic `{thm.profileText}` is not supported by the checked engines."
+          code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
+          message := s!"System `{thm.systemText}` is not supported by the checked engines."
         }
         ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])
   | none =>
       let err := {
         line := thm.firstLine
         severity := 1
-        code := "LEAN_BACKEND_UNSUPPORTED_PROFILE"
+        code := "LEAN_BACKEND_UNSUPPORTED_SYSTEM"
         message := "Every theorem must declare a complete supported logic specification."
       }
       ({ snapshot := { theorem? := some thm, sourceLines := [] }, goals := [], status := err.message, verified := false }, [err])

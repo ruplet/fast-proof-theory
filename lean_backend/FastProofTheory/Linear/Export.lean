@@ -51,8 +51,8 @@ private def parseTacticLine (entry : NumberedText) : ParsedTactic :=
   | name :: args => { name, args, sourceLine := entry.line }
   | [] => { name := "", args := [], sourceLine := entry.line }
 
-private def parseStatementGoal (profile : Profile) (entry : NumberedText) : Except EngineError Formula := do
-  match parseTheoremStatement profile entry.text with
+private def parseStatementGoal (system : DeclaredSystem) (entry : NumberedText) : Except EngineError Formula := do
+  match parseTheoremStatement system entry.text with
   | .ok formula => pure formula
   | .error err =>
       throw {
@@ -320,7 +320,7 @@ partial def buildProof (goal : Goal) (tactics : List ParsedTactic) :
             line := tactic.sourceLine
             severity := 1
             code := "LEAN_BACKEND_EXPORT_UNSUPPORTED"
-            message := "Export currently targets IPC proofs only; CPC `by_contra` is not supported."
+            message := "Export currently targets NJp proofs only; NKp `by_contra` is not supported."
           }
       | other =>
           throw {
@@ -443,12 +443,12 @@ private def renderExport (theoremName : String) (target : Formula) (proof : Proo
   String.intercalate "\n" lines
 
 def exportIPCTheorem? (thm : ParsedTheorem) : Option String :=
-  match thm.headerError?, thm.profile?, thm.statement? with
-  | none, some profile, some statement =>
-      if !(profile.isNaturalDeduction && profile.isIPC && profile.hasValidConfiguration) then
+  match thm.headerError?, thm.declaredSystem?, thm.statement? with
+  | none, some declaredSystem, some statement =>
+      if !(declaredSystem.isNaturalDeduction && declaredSystem.isNJp && declaredSystem.hasValidConfiguration) then
         none
       else
-        match parseStatementGoal profile statement with
+        match parseStatementGoal declaredSystem statement with
         | .error _ => none
         | .ok target =>
             let tactics := thm.tactics.map parseTacticLine
@@ -472,6 +472,6 @@ def exportTheoremFromDocument (text theoremName : String) : Except String String
   match exportIPCTheorem? thm with
   | some source => pure source
   | none =>
-      throw s!"Theorem `{theoremName}` is not exportable. Only verified `IPC in ND` theorems using the supported export tactics can be written as Lean files right now."
+      throw s!"Theorem `{theoremName}` is not exportable. Only verified `NJp` theorems using the supported export tactics can be written as Lean files right now."
 
 end FastProofTheory.Linear.Export

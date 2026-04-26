@@ -29,9 +29,8 @@ def renderDisplay (snapshot : Snapshot) (state : EngineState) : ProofDisplay :=
         sections := []
       }
   | some thm =>
-      let rulesLabel := thm.profile?.map (·.logicName) |>.getD thm.profileText
-      let calculusLabel := thm.profile?.map (·.calculusName) |>.getD ""
-      let languageLabel := thm.profile?.map (·.languageName) |>.getD ""
+      let systemLabel := thm.declaredSystem?.map (·.displayName) |>.getD thm.systemText
+      let languageLabel := thm.declaredSystem?.map (·.languageName) |>.getD ""
       let exportSection :=
         if state.verified then
           match Export.exportIPCTheorem? thm with
@@ -44,8 +43,7 @@ def renderDisplay (snapshot : Snapshot) (state : EngineState) : ProofDisplay :=
         title := thm.name
         status := state.status
         sections := [
-          { title := "Rules", body := [rulesLabel] },
-          { title := "Calculus", body := [calculusLabel] },
+          { title := "System", body := [systemLabel] },
           { title := "Language", body := [languageLabel] },
           { title := "Goals", body := if state.goals.isEmpty then ["No open goals."] else state.goals.map (·.target) }
         ] ++ exportSection

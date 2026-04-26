@@ -73,7 +73,7 @@ structure JsonRpcRequest where
   jsonrpc : String
   id : Json
   method : String
-  params : CheckDocumentParams
+  params : Json := Json.null
 deriving Inhabited, ToJson, FromJson
 
 structure JsonRpcError where
@@ -84,7 +84,7 @@ deriving Inhabited, Repr, ToJson, FromJson
 structure JsonRpcSuccess where
   jsonrpc : String := "2.0"
   id : Json
-  result : CheckDocumentResult
+  result : Json
 deriving Inhabited, ToJson
 
 structure JsonRpcFailure where

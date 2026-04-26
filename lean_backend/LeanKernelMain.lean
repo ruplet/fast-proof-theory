@@ -11,7 +11,7 @@ private def emitFailure (id : Json) (code : Int) (message : String) : IO Unit :=
   }
   IO.println (toJson payload).compress
 
-private def emitSuccess (id : Json) (result : CheckDocumentResult) : IO Unit := do
+private def emitSuccess (id : Json) (result : Json) : IO Unit := do
   let payload : JsonRpcSuccess := {
     id := id
     result := result
@@ -33,7 +33,16 @@ def main : IO Unit := do
   if request.jsonrpc != "2.0" then
     emitFailure request.id (-32600) "Expected jsonrpc=2.0"
     return
-  if request.method != "checkDocument" then
-    emitFailure request.id (-32601) s!"Unsupported method: {request.method}"
-    return
-  emitSuccess request.id (checkDocument request.params)
+  match request.method with
+  | "checkDocument" =>
+      let params <- match fromJson? (α := CheckDocumentParams) request.params with
+        | Except.ok params => pure params
+        | Except.error err =>
+            emitFailure request.id (-32602) s!"Invalid checkDocument params: {err}"
+            return
+      emitSuccess request.id (toJson (checkDocument params))
+  | "domainInfo" =>
+      emitSuccess request.id (toJson domainInfo)
+  | _ =>
+      emitFailure request.id (-32601) s!"Unsupported method: {request.method}"
+      return

@@ -12,15 +12,15 @@ def CheckerKind.displayName : CheckerKind → String
 /--
 The uniform result type returned by trusted proof-kernel checks.
 
-`Profile`, `Goal`, and `Certificate` are intentionally parameters. A logic may
+`System`, `Goal`, and `Certificate` are intentionally parameters. A logic may
 have its own judgment shape and certificate syntax, but a successful check always
-means that a certificate was accepted for a goal under a selected profile.
+means that a certificate was accepted for a goal under a selected system.
 -/
 structure CheckedCertificate
-    (Profile : Type u)
+    (System : Type u)
     (Goal : Type v)
     (Certificate : Type w) where
-  profile : Profile
+  system : System
   goal : Goal
   certificate : Certificate
   summary : String
@@ -34,52 +34,52 @@ kernel boundary for linear logic, natural deduction systems, System F, and futur
 systems.
 -/
 class ProofKernel
-    (Profile : Type u)
+    (System : Type u)
     (Goal : Type v)
     (Certificate : Type w)
     (Error : Type x) where
   kind : CheckerKind
   check :
-    Profile →
+    System →
     Goal →
     Certificate →
-    Except Error (CheckedCertificate Profile Goal Certificate)
+    Except Error (CheckedCertificate System Goal Certificate)
   renderError : Error → String
 
 def checkCertificate
-    {Profile : Type u}
+    {System : Type u}
     {Goal : Type v}
     {Certificate : Type w}
     {Error : Type x}
-    [ProofKernel Profile Goal Certificate Error]
-    (profile : Profile)
+    [ProofKernel System Goal Certificate Error]
+    (system : System)
     (goal : Goal)
     (certificate : Certificate) :
-    Except Error (CheckedCertificate Profile Goal Certificate) :=
-  ProofKernel.check profile goal certificate
+    Except Error (CheckedCertificate System Goal Certificate) :=
+  ProofKernel.check system goal certificate
 
 def checkerKind
-    {Profile : Type u}
+    {System : Type u}
     {Goal : Type v}
     {Certificate : Type w}
     {Error : Type x}
-    [ProofKernel Profile Goal Certificate Error] :
+    [ProofKernel System Goal Certificate Error] :
     CheckerKind :=
   ProofKernel.kind
-    (Profile := Profile)
+    (System := System)
     (Goal := Goal)
     (Certificate := Certificate)
     (Error := Error)
 
 def renderKernelError
-    {Profile : Type u}
+    {System : Type u}
     {Goal : Type v}
     {Certificate : Type w}
     {Error : Type x}
-    [ProofKernel Profile Goal Certificate Error]
+    [ProofKernel System Goal Certificate Error]
     (err : Error) : String :=
   ProofKernel.renderError
-    (Profile := Profile)
+    (System := System)
     (Goal := Goal)
     (Certificate := Certificate)
     (Error := Error)

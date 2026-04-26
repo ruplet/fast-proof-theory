@@ -9,7 +9,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { KernelClient } from "./kernelClient";
-import { GoalView, GoalsResponse, KernelDiagnostic, ProofDisplay, TheoremStatus } from "./types";
+import { DomainInfo, GoalView, GoalsResponse, KernelDiagnostic, ProofDisplay, TheoremStatus } from "./types";
 import { findProjectRoot } from "./projectRoot";
 
 type GoalsRequest = {
@@ -94,9 +94,6 @@ const connection = createConnection(process.stdin, process.stdout, undefined, Pr
 const documents = new TextDocuments<any>(TextDocument);
 const kernelClient = new KernelClient();
 
-const lastGoalsByUri = new Map<string, GoalView[]>();
-const lastDisplayByUri = new Map<string, ProofDisplay>();
-
 function toLspSeverity(s: number): DiagnosticSeverity {
   switch (s) {
     case 2:
@@ -137,8 +134,6 @@ function checkAndPublish(doc: TextDocument) {
     version: doc.version,
     text: doc.getText(),
   });
-  lastGoalsByUri.set(doc.uri, result.goals);
-  lastDisplayByUri.set(doc.uri, result.display);
   connection.sendDiagnostics({ uri: doc.uri, diagnostics: asDiagnostics(result) });
 }
 
@@ -154,8 +149,6 @@ async function evaluateGoalsAtLine(
     text: doc.getText(),
     cursor: { line, character },
   });
-  lastGoalsByUri.set(doc.uri, result.goals);
-  lastDisplayByUri.set(doc.uri, result.display);
 
   if (result.goals.length > 0) {
     return goalsOk(reqId, result.goals, result.diagnostics, result.display, result.theoremStatuses);
@@ -192,8 +185,6 @@ connection.onInitialize((_params: InitializeParams) => {
 documents.onDidOpen((e) => checkAndPublish(e.document));
 documents.onDidChangeContent((e) => checkAndPublish(e.document));
 documents.onDidClose((e) => {
-  lastGoalsByUri.delete(e.document.uri);
-  lastDisplayByUri.delete(e.document.uri);
   connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
@@ -262,6 +253,10 @@ connection.onRequest("mypa/goals", (req: unknown): Promise<GoalsResponse> | Goal
         []
       );
     });
+});
+
+connection.onRequest("mypa/domainInfo", (): DomainInfo => {
+  return kernelClient.getDomainInfo();
 });
 
 documents.listen(connection);

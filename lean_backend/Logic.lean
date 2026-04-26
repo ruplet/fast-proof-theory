@@ -7,3 +7,5 @@ import Logic.IPC.Heyting
 import Logic.IPC.Soundness
 import Logic.SystemF.Syntax
 import Logic.SystemF.Typing
+import Logic.LK2
+import Logic.SyntaxRegistry

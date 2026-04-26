@@ -17,6 +17,7 @@ inductive Token where
   | forallTok
   | lambda
   | tyLambda
+  | hasType
 deriving Inhabited, Repr
 
 private def isIdentChar (c : Char) : Bool :=
@@ -43,6 +44,7 @@ partial def tokenizeChars : List Char → Except String (List Token)
           | "all" => Token.forallTok
           | "lambda" => Token.lambda
           | "Lambda" => Token.tyLambda
+          | "has_type" => Token.hasType
           | _ => Token.ident ident
         match tokenizeChars remaining with
         | .ok tail => .ok (token :: tail)
@@ -68,6 +70,11 @@ def tokenize (text : String) : Except String (List Token) :=
   tokenizeChars text.toList
 
 abbrev Parser α := List Token → Except String (α × List Token)
+
+structure Judgment where
+  term : Tm
+  ty : Ty
+deriving Inhabited, Repr
 
 mutual
   partial def parseTyArrow : Parser Ty := fun tokens => do
@@ -98,6 +105,13 @@ private def startsTermAtom : List Token → Bool
   | Token.lambda :: _ => true
   | Token.tyLambda :: _ => true
   | _ => false
+
+private partial def splitAtHasType : List Token → Except String (List Token × List Token)
+  | [] => .error "Expected `has_type` in a System F judgment."
+  | Token.hasType :: rest => .ok ([], rest)
+  | tok :: rest => do
+      let (lhs, rhs) <- splitAtHasType rest
+      pure (tok :: lhs, rhs)
 
 mutual
   partial def parseTerm : Parser Tm := parseTermApp
@@ -160,5 +174,29 @@ def parseProofTerm (text : String) : Except String Tm := do
   match rest with
   | [] => pure term
   | _ => .error "Unexpected trailing tokens in term."
+
+def parseJudgment (text : String) : Except String Judgment := do
+  let tokens <- tokenize text
+  let (termTokens, tyTokens) <- splitAtHasType tokens
+  if termTokens.isEmpty then
+    throw "Expected a System F term before `has_type`."
+  let (term, termRest) <- parseTerm termTokens
+  match termRest with
+  | [] => pure ()
+  | _ => .error "Unexpected trailing tokens in System F term."
+  let (ty, tyRest) <- parseTyArrow tyTokens
+  match tyRest with
+  | [] => pure { term, ty }
+  | _ => .error "Unexpected trailing tokens in System F judgment."
+
+-- Small parser regressions for the `term has_type type` surface form.
+example : (match parseProofTerm "(\\x : p. x)" with | .ok _ => true | .error _ => false) = true := by
+  native_decide
+
+example : (match parseJudgment "(\\x : p. x) has_type p -> p" with | .ok _ => true | .error _ => false) = true := by
+  native_decide
+
+example : (match parseJudgment "forall p. p -> p" with | .ok _ => true | .error _ => false) = false := by
+  native_decide
 
 end FastProofTheory.SystemF.Syntax

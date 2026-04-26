@@ -4,7 +4,7 @@ inductive Ty where
   | var : String → Ty
   | arr : Ty → Ty → Ty
   | all : String → Ty → Ty
-deriving Inhabited, Repr
+deriving Inhabited, Repr, DecidableEq
 
 inductive Tm where
   | var : String → Tm
@@ -12,7 +12,7 @@ inductive Tm where
   | app : Tm → Tm → Tm
   | tyLam : String → Tm → Tm
   | tyApp : Tm → Ty → Tm
-deriving Inhabited, Repr
+deriving Inhabited, Repr, DecidableEq
 
 abbrev Context := List (String × Ty)
 

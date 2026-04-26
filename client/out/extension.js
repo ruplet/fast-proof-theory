@@ -46,6 +46,7 @@ let output;
 let reqSeq = 0;
 let requestEpoch = 0;
 let verifiedTheoremDecoration;
+let domainInfo = emptyDomainInfo();
 function isRecord(value) {
     return typeof value === "object" && value !== null;
 }
@@ -73,120 +74,41 @@ function isTheoremStatus(value) {
         typeof value.line === "number" &&
         typeof value.verified === "boolean";
 }
+function emptyDomainInfo() {
+    return {
+        symbolCompletions: [],
+        directives: [],
+        systems: [],
+        keywords: [],
+        operators: [],
+    };
+}
+function isStringArray(value) {
+    return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function isDomainInfo(value) {
+    if (!isRecord(value))
+        return false;
+    return (Array.isArray(value.symbolCompletions) &&
+        Array.isArray(value.directives) &&
+        Array.isArray(value.systems) &&
+        isStringArray(value.keywords) &&
+        isStringArray(value.operators));
+}
+function tacticDocsByName(info) {
+    const docs = new Map();
+    for (const system of info.systems) {
+        for (const tactic of system.tactics) {
+            docs.set(tactic.name.toLowerCase(), tactic);
+        }
+    }
+    return docs;
+}
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 const semanticTokenTypes = ["keyword", "operator", "comment"];
 const semanticLegend = new vscode.SemanticTokensLegend([...semanticTokenTypes], []);
-const ruleHovers = {
-    ax: {
-        title: "Axiom",
-        display: "A ⊢ A",
-        latex: String.raw `\frac{}{A \vdash A}\ \mathrm{ax}`,
-    },
-    rlolli: {
-        title: "Right Lolli",
-        display: "Γ, A ⊢ B, Δ\n────────────── rlolli\nΓ ⊢ A ⊸ B, Δ",
-        latex: String.raw `\frac{\Gamma, A \vdash B, \Delta}{\Gamma \vdash A \multimap B, \Delta}\ \mathrm{rlolli}`,
-    },
-    rtensor: {
-        title: "Right Tensor",
-        display: "Γ ⊢ A, Δ    Π ⊢ B, Σ\n──────────────────── rtensor\nΓ, Π ⊢ A ⊗ B, Δ, Σ",
-        latex: String.raw `\frac{\Gamma \vdash A, \Delta \qquad \Pi \vdash B, \Sigma}{\Gamma, \Pi \vdash A \otimes B, \Delta, \Sigma}\ \mathrm{rtensor}`,
-    },
-    rwith: {
-        title: "Right With",
-        display: "Γ ⊢ A, Δ    Γ ⊢ B, Δ\n──────────────────── rwith\nΓ ⊢ A & B, Δ",
-        latex: String.raw `\frac{\Gamma \vdash A, \Delta \qquad \Gamma \vdash B, \Delta}{\Gamma \vdash A \mathbin{\&} B, \Delta}\ \mathrm{rwith}`,
-    },
-    lleft: {
-        title: "Left With-1",
-        display: "Γ, A ⊢ Δ\n────────── lleft at h\nΓ, A & B ⊢ Δ",
-        latex: String.raw `\frac{\Gamma, A \vdash \Delta}{\Gamma, A \mathbin{\&} B \vdash \Delta}\ \mathrm{lleft}`,
-    },
-    lright: {
-        title: "Left With-2",
-        display: "Γ, B ⊢ Δ\n────────── lright at h\nΓ, A & B ⊢ Δ",
-        latex: String.raw `\frac{\Gamma, B \vdash \Delta}{\Gamma, A \mathbin{\&} B \vdash \Delta}\ \mathrm{lright}`,
-    },
-    ltensor: {
-        title: "Left Tensor",
-        display: "Γ, A, B ⊢ Δ\n──────────── ltensor at h\nΓ, A ⊗ B ⊢ Δ",
-        latex: String.raw `\frac{\Gamma, A, B \vdash \Delta}{\Gamma, A \otimes B \vdash \Delta}\ \mathrm{ltensor}`,
-    },
-    lplus: {
-        title: "Left Plus",
-        display: "Γ, A ⊢ Δ    Γ, B ⊢ Δ\n──────────────────── lplus at h\nΓ, A ⊕ B ⊢ Δ",
-        latex: String.raw `\frac{\Gamma, A \vdash \Delta \qquad \Gamma, B \vdash \Delta}{\Gamma, A \oplus B \vdash \Delta}\ \mathrm{lplus}`,
-    },
-    rplusl: {
-        title: "Right Plus-1",
-        display: "Γ ⊢ A, Δ\n────────── rplusl\nΓ ⊢ A ⊕ B, Δ",
-        latex: String.raw `\frac{\Gamma \vdash A, \Delta}{\Gamma \vdash A \oplus B, \Delta}\ \mathrm{rplusl}`,
-    },
-    rplusr: {
-        title: "Right Plus-2",
-        display: "Γ ⊢ B, Δ\n────────── rplusr\nΓ ⊢ A ⊕ B, Δ",
-        latex: String.raw `\frac{\Gamma \vdash B, \Delta}{\Gamma \vdash A \oplus B, \Delta}\ \mathrm{rplusr}`,
-    },
-    rpar: {
-        title: "Right Par",
-        display: "Γ ⊢ A, B, Δ\n──────────── rpar\nΓ ⊢ A ⅋ B, Δ",
-        latex: String.raw `\frac{\Gamma \vdash A, B, \Delta}{\Gamma \vdash A \parr B, \Delta}\ \mathrm{rpar}`,
-    },
-    llolli: {
-        title: "Left Lolli",
-        display: "Γ ⊢ A, Δ    Π, B ⊢ Σ\n──────────────────── llolli at h\nΓ, Π, A ⊸ B ⊢ Δ, Σ",
-        latex: String.raw `\frac{\Gamma \vdash A, \Delta \qquad \Pi, B \vdash \Sigma}{\Gamma, \Pi, A \multimap B \vdash \Delta, \Sigma}\ \mathrm{llolli}`,
-    },
-    intro: {
-        title: "Implication Introduction",
-        display: "A, Γ ⊢ B\n────────── intro h\nΓ ⊢ A ⟶ B",
-        latex: String.raw `\frac{A, \Gamma \vdash B}{\Gamma \vdash A \to B}\ \mathrm{intro}`,
-    },
-    assumption: {
-        title: "Assumption",
-        display: "A ∈ Γ\n────── assumption h\nΓ ⊢ A",
-        latex: String.raw `\frac{}{\,\Gamma \vdash A\,}\ \mathrm{assumption}`,
-    },
-    constructor: {
-        title: "Conjunction Introduction",
-        display: "Γ ⊢ A    Γ ⊢ B\n──────────────── constructor\nΓ ⊢ A ∧ B",
-        latex: String.raw `\frac{\Gamma \vdash A \qquad \Gamma \vdash B}{\Gamma \vdash A \land B}\ \mathrm{constructor}`,
-    },
-    left: {
-        title: "Left Rule",
-        display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ A\nHyp: h : A ∧ B gives h : A",
-        latex: String.raw `\frac{\Gamma \vdash A}{\Gamma \vdash A \lor B}\ \mathrm{left}`,
-    },
-    right: {
-        title: "Right Rule",
-        display: "Goal: Γ ⊢ A ∨ B  gives Γ ⊢ B\nHyp: h : A ∧ B gives h : B",
-        latex: String.raw `\frac{\Gamma \vdash B}{\Gamma \vdash A \lor B}\ \mathrm{right}`,
-    },
-    cases: {
-        title: "Disjunction Elimination",
-        display: "Γ ⊢ A ∨ B    A, Γ ⊢ C    B, Γ ⊢ C\n──────────────────────────── cases at h as hp hq\nΓ ⊢ C",
-        latex: String.raw `\frac{\Gamma \vdash A \lor B \qquad A, \Gamma \vdash C \qquad B, \Gamma \vdash C}{\Gamma \vdash C}\ \mathrm{cases}`,
-    },
-    apply: {
-        title: "Implication Elimination",
-        display: "h : A ⟶ B    Goal: B\n──────────── apply h\nNew goal: A",
-        latex: String.raw `\frac{\Gamma \vdash A \to B \qquad \Gamma \vdash A}{\Gamma \vdash B}\ \mathrm{apply}`,
-    },
-    exfalso: {
-        title: "Bottom Goal",
-        display: "Goal: C\n──────── exfalso\nGoal: ⊥",
-        latex: String.raw `\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{exfalso}`,
-    },
-    absurd: {
-        title: "Bottom Elimination",
-        display: "h : ⊥\n────── absurd h\nΓ ⊢ C",
-        latex: String.raw `\frac{\Gamma \vdash \bot}{\Gamma \vdash C}\ \mathrm{absurd}`,
-    },
-    by_contra: {
-        title: "Classical Rule",
-        display: "(A ⟶ ⊥), Γ ⊢ ⊥\n──────────────── by_contra h\nΓ ⊢ A",
-        latex: String.raw `\frac{(\neg A), \Gamma \vdash \bot}{\Gamma \vdash A}\ \mathrm{by\_contra}`,
-    },
-};
 function ensureGoalsPanel(context, preserveFocus = false) {
     if (!goalsPanel || goalsPanel.isDisposed()) {
         goalsPanel = GoalsPanel_1.GoalsPanel.createOrShow(context, vscode.ViewColumn.Beside, preserveFocus);
@@ -239,6 +161,20 @@ async function startLanguageClient(context) {
     languageClient = new vscode_languageclient_1.LanguageClient("mypa-lsp", "MyPA Language Server", serverOptions, clientOptions);
     context.subscriptions.push(languageClient.start());
     await languageClient.onReady();
+}
+async function loadDomainInfo() {
+    if (!languageClient) {
+        domainInfo = emptyDomainInfo();
+        return;
+    }
+    try {
+        const response = await languageClient.sendRequest("mypa/domainInfo");
+        domainInfo = isDomainInfo(response) ? response : emptyDomainInfo();
+    }
+    catch (err) {
+        domainInfo = emptyDomainInfo();
+        output?.appendLine(`[mypa] domainInfo failed: ${err.message}`);
+    }
 }
 function applyTheoremDecorations(editor, statuses) {
     if (!verifiedTheoremDecoration) {
@@ -384,6 +320,7 @@ async function activate(context) {
     context.subscriptions.push(verifiedTheoremDecoration);
     try {
         await startLanguageClient(context);
+        await loadDomainInfo();
         lspStartupError = undefined;
         output.appendLine("[mypa] language client started");
     }
@@ -473,61 +410,21 @@ async function activate(context) {
             scheduleUpdate();
         });
     }));
-    const completions = [
-        { label: "\\otimes", insertText: "⊗", detail: "tensor / times" },
-        { label: "\\tensor", insertText: "⊗", detail: "tensor / times" },
-        { label: "\\lolli", insertText: "⊸", detail: "lollipop / implication" },
-        { label: "\\with", insertText: "&", detail: "with" },
-        { label: "\\plus", insertText: "⊕", detail: "plus" },
-        { label: "\\oplus", insertText: "⊕", detail: "plus" },
-        { label: "\\top", insertText: "⊤", detail: "top" },
-        { label: "\\bot", insertText: "⊥", detail: "bottom" },
-        { label: "\\bottom", insertText: "⊥", detail: "bottom" },
-        { label: "\\one", insertText: "1", detail: "one" },
-        { label: "\\zero", insertText: "0", detail: "zero" },
-        { label: "\\bang", insertText: "!", detail: "of course" },
-    ];
-    const directiveCompletions = [
-        {
-            label: "#help",
-            insertText: "#help ",
-            detail: "Show formal-system help",
-            documentation: "Display the language and inference rules for a supported formal system.",
-            kind: vscode.CompletionItemKind.Keyword,
-        },
-    ];
-    const helpSystemCompletions = [
-        {
-            label: "cllp_gentzen",
-            insertText: "cllp_gentzen",
-            detail: "Classical linear logic, Gentzen sequent calculus",
-            documentation: "Urzyczyn-style classical linear propositional calculus in sequent form.",
-            kind: vscode.CompletionItemKind.Reference,
-        },
-        {
-            label: "ipc_nd",
-            insertText: "ipc_nd",
-            detail: "Intuitionistic propositional calculus, natural deduction",
-            documentation: "IPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
-            kind: vscode.CompletionItemKind.Reference,
-        },
-        {
-            label: "cpc_nd",
-            insertText: "cpc_nd",
-            detail: "Classical propositional calculus, natural deduction",
-            documentation: "CPC with ∧, ∨, ⟶, and ⊥ in natural deduction.",
-            kind: vscode.CompletionItemKind.Reference,
-        },
-    ];
     const completionProvider = vscode.languages.registerCompletionItemProvider({ language: "mypa" }, {
         provideCompletionItems(doc, position) {
             const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
             if (linePrefix.startsWith("#help ")) {
                 const systemPrefix = linePrefix.slice("#help ".length).trimLeft();
+                const helpSystemCompletions = domainInfo.systems.flatMap((system) => [system.key, ...system.aliases].map((name) => ({
+                    label: name,
+                    insertText: name,
+                    detail: system.title,
+                    documentation: system.summary,
+                })));
                 return helpSystemCompletions
                     .filter((c) => !systemPrefix || c.label.startsWith(systemPrefix))
                     .map((c) => {
-                    const item = new vscode.CompletionItem(c.label, c.kind ?? vscode.CompletionItemKind.Reference);
+                    const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Reference);
                     item.insertText = c.insertText;
                     item.detail = c.detail;
                     if (c.documentation) {
@@ -540,10 +437,10 @@ async function activate(context) {
             }
             if (/^\s*#\w*$/.test(linePrefix) || /^\s*#$/.test(linePrefix)) {
                 const directivePrefix = linePrefix.trimLeft();
-                return directiveCompletions
+                return domainInfo.directives
                     .filter((c) => !directivePrefix || c.label.startsWith(directivePrefix))
                     .map((c) => {
-                    const item = new vscode.CompletionItem(c.label, c.kind ?? vscode.CompletionItemKind.Keyword);
+                    const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Keyword);
                     item.insertText = c.insertText;
                     item.detail = c.detail;
                     if (c.documentation) {
@@ -556,7 +453,7 @@ async function activate(context) {
             }
             const range = doc.getWordRangeAtPosition(position, /\\[\w]*/);
             const prefix = range ? doc.getText(range) : "";
-            const items = completions
+            const items = domainInfo.symbolCompletions
                 .filter((c) => !prefix || c.label.startsWith(prefix))
                 .map((c) => {
                 const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Snippet);
@@ -578,7 +475,7 @@ async function activate(context) {
             if (!range)
                 return null;
             const word = doc.getText(range).toLowerCase();
-            const rule = ruleHovers[word];
+            const rule = tacticDocsByName(domainInfo).get(word);
             if (!rule)
                 return null;
             const md = new vscode.MarkdownString();
@@ -589,50 +486,13 @@ async function activate(context) {
         },
     });
     context.subscriptions.push(hoverProvider);
-    const keywordSet = new Set([
-        "theorem",
-        "def",
-        "using",
-        "ax",
-        "lx",
-        "rx",
-        "lleft",
-        "lright",
-        "ltensor",
-        "lplus",
-        "lpar",
-        "llolli",
-        "lneg",
-        "lone",
-        "lzero",
-        "lbottom",
-        "lbang",
-        "lwhynot",
-        "rwith",
-        "rtensor",
-        "rplusl",
-        "rplusr",
-        "rpar",
-        "rlolli",
-        "rneg",
-        "rone",
-        "rbottom",
-        "rtop",
-        "rbang",
-        "rwhynot",
-        "wbang",
-        "wwhynot",
-        "cbang",
-        "cwhynot",
-        "cut",
-        "type_intro",
-        "type_apply",
-        "exact",
-    ].map((k) => k.toLowerCase()));
-    const operatorRe = /[⊗⊕&!:]/g;
     const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider({ language: "mypa" }, {
         provideDocumentSemanticTokens(doc) {
             const builder = new vscode.SemanticTokensBuilder(semanticLegend);
+            const keywordSet = new Set(domainInfo.keywords.map((k) => k.toLowerCase()));
+            const operatorRe = domainInfo.operators.length > 0
+                ? new RegExp(domainInfo.operators.map(escapeRegExp).join("|"), "g")
+                : undefined;
             for (let line = 0; line < doc.lineCount; line++) {
                 const text = doc.lineAt(line).text;
                 const trimmed = text.trim();
@@ -645,10 +505,12 @@ async function activate(context) {
                     const start = text.indexOf(firstWord);
                     builder.push(line, start, firstWord.length, semanticTokenTypes.indexOf("keyword"), 0);
                 }
-                operatorRe.lastIndex = 0;
-                let m;
-                while ((m = operatorRe.exec(text))) {
-                    builder.push(line, m.index, 1, semanticTokenTypes.indexOf("operator"), 0);
+                if (operatorRe) {
+                    operatorRe.lastIndex = 0;
+                    let m;
+                    while ((m = operatorRe.exec(text))) {
+                        builder.push(line, m.index, m[0].length, semanticTokenTypes.indexOf("operator"), 0);
+                    }
                 }
             }
             return builder.build();
