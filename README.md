@@ -28,6 +28,16 @@ logic is not intended to be a separate trusted proof engine; the current
 refactored into the uniform `Core` layer described in
 [`docs/uniform-proof-kernel.md`](docs/uniform-proof-kernel.md).
 
+Current public module organization uses these façade namespaces:
+
+- `FastProofTheory.Language.IPC`
+- `FastProofTheory.Semantics.Kripke.IPC`
+- `FastProofTheory.Semantics.Kripke.IQC` (namespace placeholder for first-order intuitionistic Kripke semantics)
+- `FastProofTheory.Language.SystemF`
+- `FastProofTheory.ProofTheory.Natural.IPC`
+- `FastProofTheory.ProofTheory.Sequent.Linear`
+- `FastProofTheory.ProofTheory.Natural.SystemF`
+
 Inside `lean_backend/FastProofTheory/`, the current linear-logic prototype is split so proof search can evolve independently from kernel checking:
 
 - `FastProofTheory/Linear/Engine.lean` = snapshots, parsing, proof-state engine
@@ -116,10 +126,11 @@ This opens an **Extension Development Host** window with the local `mypa` extens
 
 In that window:
 
-1. Open `demo/test.mypa`.
+1. Open `demo/quickstart_linear_gentzen.mypa`.
 2. Run command palette: `MyPA: Show Goals`.
 3. Move cursor through the file and confirm goals update.
 4. Introduce an invalid line (for example `foo bar`) and confirm diagnostics appear.
+5. Use `demo/README.md` to pick additional interesting demos.
 
 Optional overrides:
 
@@ -130,7 +141,7 @@ If `code` CLI is unavailable:
 
 1. Open folder `client/` in VSCode.
 2. Press `F5` (or `Run and Debug` -> `Run Extension`) to start an Extension Development Host.
-3. In the host window, open the repo's `demo/test.mypa` file and run `MyPA: Show Goals`.
+3. In the host window, open `demo/quickstart_linear_gentzen.mypa` and run `MyPA: Show Goals`.
 
 ## 5) Quick sanity checks
 
@@ -138,7 +149,7 @@ Lean backend directly:
 
 ```bash
 cat <<'EOF' | ./.lake/build/bin/mypa-lean-kernel
-{"jsonrpc":"2.0","id":"smoke","method":"checkDocument","params":{"uri":"file:///demo/test.mypa","version":1,"text":"theorem Demo using LL in GENTZEN with LL\nhyp h1 : A\ngoal A\naxiom\nend\n","cursor":{"line":3,"character":0}}}
+{"jsonrpc":"2.0","id":"smoke","method":"checkDocument","params":{"uri":"file:///demo/quickstart_linear_gentzen.mypa","version":1,"text":"theorem Demo using LL in GENTZEN with LL\nhyp h1 : A\ngoal A\naxiom\nend\n","cursor":{"line":3,"character":0}}}
 EOF
 ```
 
@@ -154,6 +165,38 @@ These checks validate:
 - LSP transport compilation
 - client compilation
 - Lean backend execution and goal output parsing
+
+## 5b) Check `.mypa` Files From CLI
+
+Build the checker:
+
+```bash
+lake build mypa-check
+```
+
+Check a file:
+
+```bash
+lake exe mypa-check demo/quickstart_linear_gentzen.mypa
+```
+
+Check from stdin:
+
+```bash
+cat demo/quickstart_linear_gentzen.mypa | lake exe mypa-check -
+```
+
+Quickly check parser-compatible `.mypa` demos:
+
+```bash
+for f in demo/*.mypa; do
+  case "$f" in
+    demo/reference_*) continue ;;
+  esac
+  echo "==> $f"
+  lake exe mypa-check "$f" || exit 1
+done
+```
 
 ## 5a) Build the static MyST demo
 

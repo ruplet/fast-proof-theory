@@ -1,8 +1,7 @@
 import Logic.Rules
+import Logic.IPC.Syntax
 
 namespace Logic.IPC
-
-open Rules
 
 inductive Fragment where
   | implicational
@@ -10,9 +9,7 @@ inductive Fragment where
   | full
 deriving DecidableEq, Repr
 
-abbrev Formula := Rules.Formula
-
-def Formula.InFragment : Fragment → Formula → Prop
+def Formula.InFragment : Fragment -> Formula -> Prop
   | .implicational, .atom _ => True
   | .implicational, .imp a b => Formula.InFragment .implicational a ∧ Formula.InFragment .implicational b
   | .implicational, .bot => True
@@ -27,9 +24,8 @@ def Formula.InFragment : Fragment → Formula → Prop
   | .full, .and a b => Formula.InFragment .full a ∧ Formula.InFragment .full b
   | .full, .or a b => Formula.InFragment .full a ∧ Formula.InFragment .full b
   | .full, .bot => True
-  | .full, _ => False
 
-def Formula.IsIPC : Formula → Prop :=
+def Formula.IsIPC : Formula -> Prop :=
   Formula.InFragment .full
 
 abbrev WellFormed (fragment : Fragment) := { A : Formula // A.InFragment fragment }

@@ -1,0 +1,1 @@
+import FastProofTheory.ProofSystems.ClassicalNaturalDeductionNK
