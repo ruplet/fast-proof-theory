@@ -15,6 +15,7 @@ All demo files are single-level and can be opened directly in VSCode.
 - `problemset_ipc_foundations.lean`: small foundational IPC exercises as Lean derivations/countermodel formulas.
 - `problemset_zadlitt_1_negative.lean`: Lean Kripke countermodels for negative Zadlitt Problem 1 items.
 - `problemset_zadlitt_2_3_negative.lean`: Lean countermodel-based non-derivability example.
+- `kripke_tactic_countermodel_demo.lean`: stable `KripkeTactic` compatibility demo (`finish_unprovable_using`).
 
 ## Reference / Smoke
 

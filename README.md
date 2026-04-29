@@ -34,6 +34,7 @@ Current public module organization uses these façade namespaces:
 - `FastProofTheory.Semantics.Kripke.IPC`
 - `FastProofTheory.Semantics.Kripke.IQC` (namespace placeholder for first-order intuitionistic Kripke semantics)
 - `FastProofTheory.Language.SystemF`
+- `FastProofTheory.Tactics.Jtabwb`
 - `FastProofTheory.ProofTheory.Natural.IPC`
 - `FastProofTheory.ProofTheory.Sequent.Linear`
 - `FastProofTheory.ProofTheory.Natural.SystemF`
@@ -233,6 +234,29 @@ Run:
 If this fails, Lean backend execution is broken or misconfigured.
 
 Also note: the LSP `mypa/goals` path now surfaces kernel diagnostics as synthetic goals (instead of silently returning an empty goals list), so launch/runtime errors should appear in the Goals panel.
+
+## Optional: JTabWb Runtime
+
+The `FastProofTheory.Tactics.Jtabwb` tactic layer can be imported and built
+without Docker/JTabWb installed. External tooling is only required when you
+actually run tactics that call `rg3ied` (for example `finish_unprovable`).
+
+Runtime entrypoint:
+
+```bash
+tools/jtabwb-rg3ied-model.sh sample '(p | (p -> false))'
+```
+
+Runtime artifacts:
+
+- `countermodels/jtabwb/*.jtw`
+- `countermodels/jtabwb/*.out`
+- `countermodels/jtabwb/*.model.tex`
+
+Default execution path uses Docker via
+`tools/devcontainer-run.sh`. If Docker is unavailable, set
+`FAST_PROOF_THEORY_IN_DEVCONTAINER=1` and provide local Java/JTabWb
+dependencies as expected by the scripts.
 
 ## Notes
 

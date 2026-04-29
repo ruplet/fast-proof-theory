@@ -18,6 +18,9 @@ name = "Logic"
 [[lean_lib]]
 name = "FastProofTheoryBackend"
 
+[[lean_lib]]
+name = "KripkeTactic"
+
 [[lean_exe]]
 name = "fast-proof-theory"
 root = "Main"

@@ -1,4 +1,9 @@
 .tools
+/countermodels/
+model.tex
+bin/lsj
+bin/g3ied
+bin/g3ibu
 
 */.tmp/
 

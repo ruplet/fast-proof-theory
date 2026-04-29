@@ -1,0 +1,9 @@
+{
+  "name": "fast-proof-theory-proof-tools",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/fast-proof-theory,type=bind",
+  "workspaceFolder": "/workspace/fast-proof-theory"
+}
