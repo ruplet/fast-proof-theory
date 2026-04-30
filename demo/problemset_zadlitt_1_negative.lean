@@ -1,13 +1,19 @@
-import Logic.IPC.Soundness
+import FastProofTheory.IPC.Soundness
 
 namespace FastProofTheory.IPC.ZadlittProblem1Negative
 
-open Logic.IPC
-open Logic.IPC.Kripke
+open FastProofTheory.IPC
+open FastProofTheory.IPC.Kripke
 
-def a : Formula := .atom "a"
-def b : Formula := .atom "b"
-def c : Formula := .atom "c"
+inductive Atom where
+  | a
+  | b
+  | c
+deriving DecidableEq, Repr
+
+def a : Formula Atom := .atom .a
+def b : Formula Atom := .atom .b
+def c : Formula Atom := .atom .c
 
 inductive W where
   | root
@@ -21,7 +27,14 @@ def branchLe : W → W → Prop
   | .right, .right => True
   | _, _ => False
 
-def branchFrame : Frame where
+private def abcForces : W → Atom → Prop
+  | .left, .a => True
+  | .right, .a => True
+  | .left, .b => True
+  | .right, .c => True
+  | _, _ => False
+
+private def abcModel : Model Atom where
   World := W
   le := branchLe
   refl := by
@@ -30,29 +43,10 @@ def branchFrame : Frame where
   trans := by
     intro u v w huv hvw
     cases u <;> cases v <;> cases w <;> trivial
-
-private def abcVal : String → W → Prop
-  | "a", .left => True
-  | "a", .right => True
-  | "b", .left => True
-  | "c", .right => True
-  | _, _ => False
-
-private def abcModel : Model where
-  toFrame := branchFrame
-  val := abcVal
+  forces := abcForces
   mono := by
-    intro p u v huv hp
-    by_cases hpa : p = "a"
-    · subst hpa
-      cases u <;> cases v <;> simp [abcVal, branchLe] at hp ⊢ <;> try contradiction <;> try trivial
-    · by_cases hpb : p = "b"
-      · subst hpb
-        cases u <;> cases v <;> simp [abcVal, branchLe] at hp ⊢ <;> try contradiction <;> try trivial
-      · by_cases hpc : p = "c"
-        · subst hpc
-          cases u <;> cases v <;> simp [abcVal, branchLe] at hp ⊢ <;> try contradiction <;> try trivial
-        · cases u <;> cases v <;> simp [abcVal, branchLe, hpa, hpb, hpc] at hp ⊢ <;> try contradiction <;> try trivial
+    intro atom u v huv hp
+    cases atom <;> cases u <;> cases v <;> simp [abcForces, branchLe] at huv hp ⊢
 
 private theorem abc_root_forces_antecedent :
     Forces abcModel W.root (a -> (b ∨ c)) := by
@@ -60,7 +54,7 @@ private theorem abc_root_forces_antecedent :
   cases v with
   | root =>
       have hfalse : False := by
-        simpa [abcModel, abcVal, branchLe] using ha
+        simpa [abcModel, abcForces, branchLe] using ha
       exact False.elim hfalse
   | left =>
       exact Or.inl trivial
@@ -71,8 +65,8 @@ private theorem abc_root_not_forces_a_imp_b :
     ¬ Forces abcModel W.root (a -> b) := by
   intro h
   have ha : Forces abcModel W.right a := by
-    change abcVal "a" W.right
-    simp [abcVal]
+    change abcForces W.right Atom.a
+    simp [abcForces]
   have hb := h W.right trivial ha
   change False at hb
   exact hb
@@ -81,8 +75,8 @@ private theorem abc_root_not_forces_a_imp_c :
     ¬ Forces abcModel W.root (a -> c) := by
   intro h
   have ha : Forces abcModel W.left a := by
-    change abcVal "a" W.left
-    simp [abcVal]
+    change abcForces W.left Atom.a
+    simp [abcForces]
   have hc := h W.left trivial ha
   change False at hc
   exact hc
@@ -104,19 +98,23 @@ theorem problem1a_not_derivable :
     sound d (M := abcModel) (w := W.root) (by intro v hv A hA; cases hA)
   exact abc_root_refutes hforces
 
-private def triVal : String → W → Prop
-  | "a", .left => True
+private def triForces : W → Atom → Prop
+  | .left, .a => True
   | _, _ => False
 
-private def triModel : Model where
-  toFrame := branchFrame
-  val := triVal
+private def triModel : Model Atom where
+  World := W
+  le := branchLe
+  refl := by
+    intro w
+    cases w <;> trivial
+  trans := by
+    intro u v w huv hvw
+    cases u <;> cases v <;> cases w <;> trivial
+  forces := triForces
   mono := by
-    intro p u v huv hp
-    by_cases hpa : p = "a"
-    · subst hpa
-      cases u <;> cases v <;> simp [triVal, branchLe] at hp ⊢ <;> try contradiction <;> try trivial
-    · cases u <;> cases v <;> simp [triVal, branchLe, hpa] at hp ⊢ <;> try contradiction <;> try trivial
+    intro atom u v huv hp
+    cases atom <;> cases u <;> cases v <;> simp [triForces, branchLe] at huv hp ⊢
 
 private theorem tri_left_forces_double_neg :
     Forces triModel W.left (((a -> ⊥) -> ⊥)) := by
@@ -124,13 +122,13 @@ private theorem tri_left_forces_double_neg :
   cases v with
   | root =>
       have hfalse : False := by
-        simpa [triModel, triVal, branchLe] using hv
+        simpa [triModel, triForces, branchLe] using hv
       exact False.elim hfalse
   | left =>
-      exact hna W.left trivial (by change triVal "a" W.left; trivial)
+      exact hna W.left trivial (by change triForces W.left Atom.a; trivial)
   | right =>
       have hfalse : False := by
-        simpa [triModel, triVal, branchLe] using hv
+        simpa [triModel, triForces, branchLe] using hv
       exact False.elim hfalse
 
 private theorem tri_right_forces_neg :
@@ -139,15 +137,15 @@ private theorem tri_right_forces_neg :
   cases v with
   | root =>
       have hfalse : False := by
-        simpa [triModel, triVal, branchLe] using hv
+        simpa [triModel, triForces, branchLe] using hv
       exact False.elim hfalse
   | left =>
       have hfalse : False := by
-        simpa [triModel, triVal, branchLe] using hv
+        simpa [triModel, triForces, branchLe] using hv
       exact False.elim hfalse
   | right =>
       have hfalse : False := by
-        simpa [triModel, triVal, branchLe] using ha
+        simpa [triModel, triForces, branchLe] using ha
       exact False.elim hfalse
 
 private theorem tri_root_not_double_neg :

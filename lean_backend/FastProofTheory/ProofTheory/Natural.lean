@@ -1,3 +1,0 @@
-import FastProofTheory.ProofTheory.Natural.IPC
-import FastProofTheory.ProofTheory.Natural.SystemF
-import FastProofTheory.ProofTheory.Natural.Classical

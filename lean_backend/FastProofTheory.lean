@@ -1,9 +1,0 @@
-import Logic
-import FastProofTheory.Language
-import FastProofTheory.Semantics
-import FastProofTheory.ProofTheory
-import FastProofTheory.Tactics
-import FastProofTheory.Core.Kernel
-import FastProofTheory.ND.Kernel
-import FastProofTheory.SystemF.Syntax
-import FastProofTheoryBackend

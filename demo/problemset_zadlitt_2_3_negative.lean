@@ -1,11 +1,15 @@
-import Logic.IPC.Countermodel
+import FastProofTheory.IPC.Countermodel
 
 namespace Demo.ZadlittProblem2_3.Negative
 
-open Logic.IPC
-open Logic.IPC.Countermodel
+open FastProofTheory.IPC
+open FastProofTheory.IPC.Countermodel
 
-def p : Formula := .atom "p"
+inductive Atom where
+  | p
+deriving DecidableEq, Repr
+
+def p : Formula Atom := .atom .p
 
 private def frame : FiniteFrame where
   n := 1
@@ -13,19 +17,19 @@ private def frame : FiniteFrame where
   refl := by intro w; decide
   trans := by intro u v w huv hvw; decide
 
-private def model : FiniteModel where
+private def model : FiniteModel Atom where
   toFiniteFrame := frame
   val := fun _ _ => false
   mono := by
-    intro p u v huv hp
+    intro atom u v huv hp
     simp at hp
 
-def counterP : Countermodel where
+def counterP : Countermodel Atom where
   M := model
   root := ⟨0, by decide⟩
   formula := p
   refutes := by
-    unfold Logic.IPC.Countermodel.eval
+    unfold FastProofTheory.IPC.Countermodel.eval
     simp [model, frame]
     intro h
     cases h

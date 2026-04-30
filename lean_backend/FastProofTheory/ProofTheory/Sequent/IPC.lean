@@ -1,3 +1,0 @@
-import Logic.IPC.G3i
-import FastProofTheory.ProofSystems.IntuitionisticSequentCalculusLJ
-import FastProofTheory.ProofSystems.IntuitionisticSequentCalculusLJMeta

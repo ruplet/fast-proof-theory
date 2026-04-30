@@ -1,2 +1,0 @@
-import Logic.LK2
-import FastProofTheory.ProofSystems.ClassicalSequentCalculusLK

@@ -1,3 +1,0 @@
-import FastProofTheory.Linear.Kernel
-import FastProofTheory.ProofSystems.LinearSequentUrzyczyn
-import FastProofTheory.ProofSystems.Substructural

@@ -1,6 +1,6 @@
 name = "fast-proof-theory"
 version = "0.1.0"
-srcDir = "lean_backend"
+srcDir = "."
 defaultTargets = ["fast-proof-theory"]
 
 [[require]]
@@ -12,28 +12,22 @@ rev = "v4.29.0"
 [[lean_lib]]
 name = "FastProofTheory"
 
-[[lean_lib]]
-name = "Logic"
-
-[[lean_lib]]
-name = "FastProofTheoryBackend"
-
 [[lean_exe]]
 name = "fast-proof-theory"
-root = "Main"
+root = "FastProofTheory.App.Main"
 
 [[lean_exe]]
 name = "mypa-lean-kernel"
-root = "LeanKernelMain"
+root = "FastProofTheory.App.LeanKernelMain"
 
 [[lean_exe]]
 name = "mypa-check"
-root = "MypaCheckMain"
+root = "FastProofTheory.App.MypaCheckMain"
 
 [[lean_exe]]
 name = "mypa-export"
-root = "MypaExportMain"
+root = "FastProofTheory.App.MypaExportMain"
 
 [[lean_exe]]
 name = "mypa-export-cache"
-root = "MypaExportCacheMain"
+root = "FastProofTheory.App.MypaExportCacheMain"

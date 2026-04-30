@@ -1,0 +1,8 @@
+import FastProofTheory.ProofTheory.Natural.System
+import FastProofTheory.ProofTheory.Natural.Kernel
+import FastProofTheory.ProofTheory.Natural.IntuitionisticNJ
+import FastProofTheory.ProofTheory.Natural.ClassicalNK
+import FastProofTheory.ProofTheory.Natural.Linear
+import FastProofTheory.ProofTheory.Natural.IPC
+import FastProofTheory.ProofTheory.Natural.SystemF
+import FastProofTheory.ProofTheory.Natural.Classical

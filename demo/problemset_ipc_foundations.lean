@@ -1,16 +1,21 @@
-import Logic.IPC.Countermodel
+import FastProofTheory.IPC.Countermodel
 
 namespace Demo.Problemset.IPC
 
-open Logic.IPC
+open FastProofTheory.IPC
 
-def p : Formula := .atom "p"
-def q : Formula := .atom "q"
+inductive Atom where
+  | p
+  | q
+deriving DecidableEq, Repr
 
-def neg (A : Formula) : Formula := .imp A .bot
+def p : Formula Atom := .atom .p
+def q : Formula Atom := .atom .q
+
+def neg (A : Formula Atom) : Formula Atom := .imp A .bot
 
 -- Problem 1(a): countermodel
-def pOrNotP : Formula := p ∨ neg p
+def pOrNotP : Formula Atom := p ∨ neg p
 
 -- Problem 1(b): theorem
 def p_imp_p : Derivation [] (p -> p) :=
