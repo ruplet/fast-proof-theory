@@ -1,0 +1,441 @@
+"use strict";
+
+const DOMAIN_INFO = {
+  symbolCompletions: [],
+  directives: [
+    {
+      label: "#help",
+      insertText: "#help cllp_gentzen",
+      detail: "Directive",
+      documentation: "Show available proof-system info.",
+    },
+  ],
+  systems: [
+    {
+      key: "cllp_gentzen",
+      aliases: ["LL", "LL!"],
+      title: "Classical Linear Logic (Gentzen)",
+      summary: "Linear sequent tactics mapped to FastProofTheory.Proof.LinearLogic constructors.",
+      language: ["linear"],
+      tactics: [
+        { name: "ax", title: "Assumption", display: "ax h", summary: "Close goal using matching hypothesis." },
+        { name: "rlolli", title: "⊸ Right", display: "rlolli h", summary: "Introduce antecedent from lolli goal." },
+        { name: "rwith", title: "& Right", display: "rwith", summary: "Split goal into two conjunctive goals." },
+        { name: "rplusl", title: "⊕ Right Left", display: "rplusl", summary: "Prove left disjunct." },
+        { name: "rplusr", title: "⊕ Right Right", display: "rplusr", summary: "Prove right disjunct." },
+        { name: "rtensor", title: "⊗ Right", display: "rtensor h", summary: "Split context and prove tensor components." },
+      ],
+      checkedNow: ["ax", "rlolli", "rwith", "rplusl", "rplusr", "rtensor"],
+    },
+  ],
+  keywords: ["def", "theorem", "using", "in", "with", "by"],
+  operators: ["⊸", "⊗", "&", "⊕", "!", "(", ")"],
+};
+
+function mkRange(line, start, end) {
+  return { start: { line, character: start }, end: { line, character: end } };
+}
+
+function diagnostic(line, code, message, severity = 1) {
+  return { range: mkRange(line, 0, 1), severity, code, source: "proofAssistant", message };
+}
+
+function tokenizeFormula(input) {
+  const s = input.trim();
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) {
+      i += 1;
+      continue;
+    }
+    if (s.startsWith("->", i)) {
+      tokens.push({ t: "op", v: "⊸" });
+      i += 2;
+      continue;
+    }
+    if (["(", ")", "⊗", "&", "⊕", "⊸", "!"].includes(c)) {
+      tokens.push({ t: c === "(" || c === ")" ? c : "op", v: c });
+      i += 1;
+      continue;
+    }
+    if (/[A-Za-z0-9_]/.test(c)) {
+      let j = i + 1;
+      while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j += 1;
+      tokens.push({ t: "id", v: s.slice(i, j) });
+      i = j;
+      continue;
+    }
+    throw new Error(`Unexpected token '${c}' in formula.`);
+  }
+  return tokens;
+}
+
+function parseFormula(text) {
+  const tokens = tokenizeFormula(text);
+  let i = 0;
+  function peek() { return tokens[i]; }
+  function consume() { return tokens[i++]; }
+  function parseAtom() {
+    const tk = peek();
+    if (!tk) throw new Error("Unexpected end of formula.");
+    if (tk.t === "id") {
+      consume();
+      return { k: "atom", n: tk.v };
+    }
+    if (tk.t === "op" && tk.v === "!") {
+      consume();
+      return { k: "bang", a: parseAtom() };
+    }
+    if (tk.t === "(") {
+      consume();
+      const inner = parseLolli();
+      if (!peek() || peek().t !== ")") throw new Error("Missing closing ')'.");
+      consume();
+      return inner;
+    }
+    throw new Error(`Unexpected token '${tk.v || tk.t}'.`);
+  }
+  function parseTensor() {
+    let left = parseAtom();
+    while (peek() && peek().t === "op" && (peek().v === "⊗")) {
+      consume();
+      const right = parseAtom();
+      left = { k: "tensor", l: left, r: right };
+    }
+    return left;
+  }
+  function parseWithPlus() {
+    let left = parseTensor();
+    while (peek() && peek().t === "op" && (peek().v === "&" || peek().v === "⊕")) {
+      const op = consume().v;
+      const right = parseTensor();
+      left = { k: op === "&" ? "with" : "plus", l: left, r: right };
+    }
+    return left;
+  }
+  function parseLolli() {
+    let left = parseWithPlus();
+    if (peek() && peek().t === "op" && peek().v === "⊸") {
+      consume();
+      const right = parseLolli();
+      return { k: "lolli", l: left, r: right };
+    }
+    return left;
+  }
+  const out = parseLolli();
+  if (i !== tokens.length) throw new Error("Unexpected trailing tokens in formula.");
+  return out;
+}
+
+function formulaEq(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function formulaLean(f) {
+  switch (f.k) {
+    case "atom": return `LinearFormula.atom ${JSON.stringify(f.n)}`;
+    case "bang": return `(LinearFormula.bang ${formulaLean(f.a)})`;
+    case "tensor": return `(${formulaLean(f.l)} ⊗ ${formulaLean(f.r)})`;
+    case "with": return `(${formulaLean(f.l)} & ${formulaLean(f.r)})`;
+    case "plus": return `(${formulaLean(f.l)} ⊕ ${formulaLean(f.r)})`;
+    case "lolli": return `(${formulaLean(f.l)} ⊸ ${formulaLean(f.r)})`;
+    default: throw new Error("Unsupported formula kind.");
+  }
+}
+
+function parseDocument(text) {
+  const lines = text.split(/\r?\n/);
+  const theorems = [];
+  const diagnostics = [];
+  let i = 0;
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.trim();
+    if (!line || line.startsWith("--") || line.startsWith("#help")) {
+      i += 1;
+      continue;
+    }
+    const m = line.match(/^(def|theorem)\s+([A-Za-z_][A-Za-z0-9_]*)\s+using\s+(.+?)\s*:\s*(.+?)\s*:=\s*by\s*$/);
+    if (!m) {
+      diagnostics.push(diagnostic(i, "PARSE_TOPLEVEL", "Expected theorem header `def/theorem ... := by`."));
+      i += 1;
+      continue;
+    }
+    const [, , name, system, statement] = m;
+    const tactics = [];
+    const startLine = i;
+    i += 1;
+    while (i < lines.length) {
+      const t = lines[i].trim();
+      if (!t || t.startsWith("--")) {
+        i += 1;
+        continue;
+      }
+      if (/^(def|theorem)\s+/.test(t)) break;
+      tactics.push({ line: i, text: t });
+      i += 1;
+    }
+    theorems.push({ name, system, statement, tactics, line: startLine });
+  }
+  return { theorems, diagnostics };
+}
+
+function parseTactic(line, lineNo) {
+  const parts = line.trim().split(/\s+/);
+  if (!parts[0]) return { err: diagnostic(lineNo, "TACTIC_EMPTY", "Empty tactic line.") };
+  return { name: parts[0], args: parts.slice(1), line: lineNo };
+}
+
+function compileLinear(thm) {
+  if (!(thm.system.includes("LL") && thm.system.toUpperCase().includes("GENTZEN"))) {
+    return { ok: false, error: diagnostic(thm.line, "SYSTEM_UNSUPPORTED", "Only linear `using LL in GENTZEN ...` is extractable.") };
+  }
+  let target;
+  try {
+    target = parseFormula(thm.statement);
+  } catch (e) {
+    return { ok: false, error: diagnostic(thm.line, "FORMULA_PARSE", String(e.message || e)) };
+  }
+  const root = { ctx: [], target, node: null };
+  const goals = [root];
+  for (const tacLine of thm.tactics) {
+    if (goals.length === 0) return { ok: false, error: diagnostic(tacLine.line, "NO_GOALS", "No open goals for tactic.") };
+    const goal = goals.shift();
+    const tac = parseTactic(tacLine.text, tacLine.line);
+    if (tac.err) return { ok: false, error: tac.err };
+    if (tac.name === "rlolli") {
+      if (!goal.target || goal.target.k !== "lolli") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rlolli` expects a lolli goal.") };
+      const h = tac.args[0] || `h${goal.ctx.length + 1}`;
+      const sub = { ctx: [{ n: h, f: goal.target.l }].concat(goal.ctx), target: goal.target.r, node: null };
+      goal.node = { k: "lolliRight", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "ax") {
+      const h = tac.args[0];
+      if (!h) return { ok: false, error: diagnostic(tac.line, "TACTIC_ARGS", "`ax` requires a hypothesis name.") };
+      const found = goal.ctx.find((x) => x.n === h);
+      if (!found) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown hypothesis \`${h}\`.`) };
+      if (!formulaEq(found.f, goal.target)) return { ok: false, error: diagnostic(tac.line, "AX_MISMATCH", `Hypothesis \`${h}\` does not match goal.`) };
+      if (goal.ctx.length !== 1) {
+        return { ok: false, error: diagnostic(tac.line, "LINEAR_CONTEXT", "`ax` requires exactly one linear hypothesis in scope.") };
+      }
+      goal.node = { k: "assumption", formula: goal.target };
+      continue;
+    }
+    if (tac.name === "rwith") {
+      if (goal.target.k !== "with") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rwith` expects `A & B` goal.") };
+      const left = { ctx: goal.ctx.slice(), target: goal.target.l, node: null };
+      const right = { ctx: goal.ctx.slice(), target: goal.target.r, node: null };
+      goal.node = { k: "withRight", left, right };
+      goals.unshift(right);
+      goals.unshift(left);
+      continue;
+    }
+    if (tac.name === "rplusl") {
+      if (goal.target.k !== "plus") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rplusl` expects `A ⊕ B` goal.") };
+      const sub = { ctx: goal.ctx.slice(), target: goal.target.l, node: null };
+      goal.node = { k: "plusRightLeft", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "rplusr") {
+      if (goal.target.k !== "plus") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rplusr` expects `A ⊕ B` goal.") };
+      const sub = { ctx: goal.ctx.slice(), target: goal.target.r, node: null };
+      goal.node = { k: "plusRightRight", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "rtensor") {
+      if (goal.target.k !== "tensor") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rtensor` expects `A ⊗ B` goal.") };
+      if (goal.ctx.length > 2) {
+        return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", "`rtensor` with more than two linear hypotheses is not supported in this extractor yet.") };
+      }
+      const hint = tac.args[0];
+      let leftCtx = [];
+      let rightCtx = goal.ctx.slice();
+      if (hint) {
+        const idx = goal.ctx.findIndex((x) => x.n === hint);
+        if (idx < 0) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown split hint \`${hint}\`.`) };
+        leftCtx = [goal.ctx[idx]];
+        rightCtx = goal.ctx.slice(0, idx).concat(goal.ctx.slice(idx + 1));
+      }
+      const left = { ctx: leftCtx, target: goal.target.l, node: null };
+      const right = { ctx: rightCtx, target: goal.target.r, node: null };
+      goal.node = {
+        k: "tensorRight",
+        left,
+        right,
+        goalCtx: goal.ctx.map((x) => x.f),
+        leftFormula: goal.target.l,
+        rightFormula: goal.target.r,
+      };
+      goals.unshift(right);
+      goals.unshift(left);
+      continue;
+    }
+    return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", `Unsupported linear tactic \`${tac.name}\`.`) };
+  }
+  if (goals.length > 0) {
+    return { ok: false, error: diagnostic(thm.line, "UNCLOSED_GOALS", "Proof ended before all goals were solved.") };
+  }
+  return { ok: true, root };
+}
+
+function renderNode(node, indent) {
+  const pad = " ".repeat(indent);
+  if (node.k === "assumption") return `${pad}exact LinearLogic.assumption`;
+  if (node.k === "lolliRight") {
+    return `${pad}apply LinearLogic.lolliRight\n${renderNode(node.sub.node, indent)}`;
+  }
+  if (node.k === "withRight") {
+    return `${pad}apply LinearLogic.withRight\n${pad}·\n${renderNode(node.left.node, indent + 2)}\n${pad}·\n${renderNode(node.right.node, indent + 2)}`;
+  }
+  if (node.k === "plusRightLeft") {
+    return `${pad}apply LinearLogic.plusRightLeft\n${renderNode(node.sub.node, indent)}`;
+  }
+  if (node.k === "plusRightRight") {
+    return `${pad}apply LinearLogic.plusRightRight\n${renderNode(node.sub.node, indent)}`;
+  }
+  if (node.k === "tensorRight") {
+    const leftAnt = listLean(builtAntecedent(node.left.node));
+    const rightAnt = listLean(builtAntecedent(node.right.node));
+    const body =
+      `${pad}apply (LinearLogic.tensorRight ` +
+      `(leftAntecedent := ${leftAnt}) ` +
+      `(leftSuccedent := []) ` +
+      `(rightAntecedent := ${rightAnt}) ` +
+      `(rightSuccedent := []) ` +
+      `(leftFormula := ${formulaLean(node.leftFormula)}) ` +
+      `(rightFormula := ${formulaLean(node.rightFormula)}))\n` +
+      `${pad}·\n${renderNode(node.left.node, indent + 2)}\n${pad}·\n${renderNode(node.right.node, indent + 2)}`;
+    const built = builtAntecedent(node);
+    const expected = node.goalCtx || built;
+    return wrapExchangeLeft(body, built, expected, indent);
+  }
+  throw new Error("Unknown node kind.");
+}
+
+function builtAntecedent(node) {
+  if (node.k === "assumption") return [node.formula];
+  if (node.k === "lolliRight") return builtAntecedent(node.sub.node).slice(1);
+  if (node.k === "withRight") return builtAntecedent(node.left.node);
+  if (node.k === "plusRightLeft" || node.k === "plusRightRight") return builtAntecedent(node.sub.node);
+  if (node.k === "tensorRight") return builtAntecedent(node.left.node).concat(builtAntecedent(node.right.node));
+  return [];
+}
+
+function wrapExchangeLeft(body, built, expected, indent) {
+  const pad = " ".repeat(indent);
+  const b = built.map((x) => JSON.stringify(x)).join("|");
+  const e = expected.map((x) => JSON.stringify(x)).join("|");
+  if (b === e) return body;
+  if (built.length !== expected.length) {
+    throw new Error("Internal context mismatch.");
+  }
+  const plan = bubbleSwapPlan(expected.slice(), built.slice());
+  if (!plan) throw new Error("Could not synthesize exchangeLeft normalization.");
+  const prefix = plan
+    .map(
+      (step) =>
+        `${pad}apply (LinearLogic.exchangeLeft ` +
+        `(leftContext := ${listLean(step.left)}) ` +
+        `(rightContext := ${listLean(step.right)}) ` +
+        `(firstFormula := ${formulaLean(step.first)}) ` +
+        `(secondFormula := ${formulaLean(step.second)}))`
+    )
+    .join("\n");
+  return `${prefix}\n${body}`;
+}
+
+function listLean(xs) {
+  if (!xs.length) return "[]";
+  return `[${xs.map(formulaLean).join(", ")}]`;
+}
+
+function bubbleSwapPlan(from, to) {
+  const enc = (f) => JSON.stringify(f);
+  const arr = from.map(enc);
+  const actual = from.slice();
+  const tgt = to.map(enc);
+  const steps = [];
+  for (let i = 0; i < tgt.length; i += 1) {
+    const want = tgt[i];
+    let j = i;
+    while (j < arr.length && arr[j] !== want) j += 1;
+    if (j === arr.length) return null;
+    while (j > i) {
+      steps.push({
+        left: actual.slice(0, j - 1),
+        first: actual[j],
+        second: actual[j - 1],
+        right: actual.slice(j + 1),
+      });
+      const tmp = arr[j];
+      arr[j] = arr[j - 1];
+      arr[j - 1] = tmp;
+      const tf = actual[j];
+      actual[j] = actual[j - 1];
+      actual[j - 1] = tf;
+      j -= 1;
+    }
+  }
+  return steps;
+}
+
+function theoremLean(thm, proofRoot) {
+  const nm = thm.name.replace(/[^A-Za-z0-9_]/g, "_");
+  return [
+    "import FastProofTheory.Proof.LinearLogic",
+    "",
+    "open FastProofTheory.Proof",
+    "open LinearFormula",
+    "",
+    `def ${nm}_extracted : LinearLogic [] [${formulaLean(parseFormula(thm.statement))}] := by`,
+    renderNode(proofRoot.node, 2),
+    "",
+  ].join("\n");
+}
+
+function checkDocument(params) {
+  const parsed = parseDocument(params.text || "");
+  const diagnostics = parsed.diagnostics.slice();
+  const theoremStatuses = [];
+  for (const thm of parsed.theorems) {
+    const compiled = compileLinear(thm);
+    theoremStatuses.push({ name: thm.name, line: thm.line, verified: !!compiled.ok });
+    if (!compiled.ok) diagnostics.push(compiled.error);
+  }
+  return {
+    diagnostics,
+    goals: [],
+    display: {
+      title: "proofAssistant",
+      status: diagnostics.length ? "Errors detected." : "No parser/checker errors.",
+      sections: [
+        { title: "Systems", body: ["Linear extraction enabled for `using LL in GENTZEN ...`."] },
+      ],
+    },
+    theoremStatuses,
+  };
+}
+
+function extractDocument(text, theoremName) {
+  const parsed = parseDocument(text);
+  if (parsed.diagnostics.length) {
+    return { ok: false, error: `Parse failed: ${parsed.diagnostics[0].message}` };
+  }
+  const thm = parsed.theorems.find((t) => t.name === theoremName);
+  if (!thm) return { ok: false, error: `Theorem \`${theoremName}\` not found.` };
+  const compiled = compileLinear(thm);
+  if (!compiled.ok) return { ok: false, error: compiled.error.message };
+  return { ok: true, source: theoremLean(thm, compiled.root) };
+}
+
+module.exports = {
+  domainInfo: DOMAIN_INFO,
+  checkDocument,
+  extractDocument,
+};

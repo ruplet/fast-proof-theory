@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run MyPA Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--disable-extension=GitHub.copilot",
+        "--disable-extension=GitHub.copilot-chat",
+        "--extensionDevelopmentPath=${workspaceFolder}/proofAssistant/extensionVSCode"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/proofAssistant/extensionVSCode/out/**/*.js"
+      ],
+      "preLaunchTask": "dev: compile extension + lsp"
+    }
+  ]
+}

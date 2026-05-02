@@ -14,20 +14,4 @@ name = "FastProofTheory"
 
 [[lean_exe]]
 name = "fast-proof-theory"
-root = "FastProofTheory.App.Main"
-
-[[lean_exe]]
-name = "mypa-lean-kernel"
-root = "FastProofTheory.App.LeanKernelMain"
-
-[[lean_exe]]
-name = "mypa-check"
-root = "FastProofTheory.App.MypaCheckMain"
-
-[[lean_exe]]
-name = "mypa-export"
-root = "FastProofTheory.App.MypaExportMain"
-
-[[lean_exe]]
-name = "mypa-export-cache"
-root = "FastProofTheory.App.MypaExportCacheMain"
+root = "FastProofTheory.Main"

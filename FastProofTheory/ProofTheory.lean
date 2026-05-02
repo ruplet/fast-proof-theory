@@ -1,2 +1,0 @@
-import FastProofTheory.ProofTheory.Natural
-import FastProofTheory.ProofTheory.Sequent

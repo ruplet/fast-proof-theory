@@ -1,3 +1,0 @@
-import FastProofTheory.ProofTheory.Sequent.IPC
-import FastProofTheory.ProofTheory.Sequent.Linear
-import FastProofTheory.ProofTheory.Sequent.Classical
