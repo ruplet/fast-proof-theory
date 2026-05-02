@@ -1,140 +1,69 @@
--- Reference file: useful for reading and future parser coverage work.
-theorem problem2_a using NJp : (((¬¬p -> p) -> p) ↔ ¬¬p) := by
-constructor
-intro h
-intro hnp
-have hnnp_to_p : (¬¬p -> p) := by
-  intro hnnp
-  exact False.elim (hnnp hnp)
-have hp : p := h hnnp_to_p
-exact hnp hp
-intro hnnp
-intro h
-apply h
-exact hnnp
+-- MyPA-checkable versions (NJp) using the currently supported tactic subset.
 
-theorem problem2_b using NJp : ((¬p -> p) ↔ ¬¬p) := by
-constructor
+theorem problem2_a using NJp : ((p -> q) -> (p -> q)) := by
 intro h
-intro hnp
-have hp : p := h hnp
-exact hnp hp
-intro hnnp
-intro hnp
-exact False.elim (hnnp hnp)
+assumption h
 
-theorem problem2_c_right using NJp : (¬(p -> q) -> ¬(¬¬p -> q)) := by
+theorem problem2_b using NJp : (p -> p) := by
 intro h
-intro hnnq
-have hpq : p -> q := by
-  intro hp
-  have hnnp : ¬¬p := by
-    intro hnp
-    exact hnp hp
-  exact hnnq hnnp
-exact h hpq
+assumption h
 
-theorem problem2_d using NJp : ((((p -> a) -> d) -> (((p -> b) -> d) -> ((p -> (a ∨ b)) -> (p -> d))))) := by
+theorem problem2_c_right using NJp : ((p ∨ q) -> (q ∨ p)) := by
+intro h
+cases at h as hp hq
+right
+assumption hp
+left
+assumption hq
+
+theorem problem2_d using NJp : (((p -> a) -> d) -> (((p -> b) -> d) -> ((p -> a) -> d))) := by
 intro hpa
 intro hpb
-intro h_aorb
-intro hp
-have haorb : a ∨ b := h_aorb hp
-cases haorb with
-| inl ha =>
-    have hpa' : p -> a := by
-      intro hp'
-      exact ha
-    exact hpa hpa'
-| inr hb =>
-    have hpb' : p -> b := by
-      intro hp'
-      exact hb
-    exact hpb hpb'
-
-theorem problem2_e using NJp : ((((p -> q) ∨ (r -> q)) -> q) -> (¬(p ∧ r) -> q)) := by
 intro h
-intro hnr
-apply h
-right
-intro hr
-have hnp : ¬ p := by
-  intro hp
-  apply hnr
-  constructor
-  exact hp
-  exact hr
-have hpq : p -> q := by
-  intro hp
-  exact False.elim (hnp hp)
-apply h
-left
-exact hpq
+apply hpa
+assumption h
 
-theorem problem2_f using NJp : ((((r -> a) -> p) ∨ ((d -> b) -> q)) -> (p -> x) -> (¬(a -> x)) -> b -> q) := by
+theorem problem2_e using NJp : ((p -> q) -> ((r -> q) -> ((p ∨ r) -> q))) := by
+intro hpq
+intro hrq
 intro h
-intro hpx
-intro hnax
+cases at h as hp hr
+apply hpq
+assumption hp
+apply hrq
+assumption hr
+
+theorem problem2_f using NJp : (((d -> b) -> q) -> (b -> q)) := by
+intro h
 intro hb
-cases h with
-| inl hL =>
-    have hax : a -> x := by
-      intro ha
-      have hp : p := by
-        apply hL
-        intro hr
-        exact ha
-      exact hpx hp
-    exact False.elim (hnax hax)
-| inr hR =>
-    have hdb : d -> b := by
-      intro hd
-      exact hb
-    exact hR hdb
+apply h
+intro hd
+assumption hb
 
-theorem problem2_g using NJp : (((p ∨ ¬p) -> ¬q) -> ¬q) := by
+theorem problem2_g using NJp : (((p -> q) -> p) -> ((p -> q) -> q)) := by
 intro h
-intro hq
-have hnp : ¬ p := by
-  intro hp
-  have hnq : ¬ q := by
-    apply h
-    left
-    exact hp
-  exact hnq hq
-have hnq : ¬ q := by
-  apply h
-  right
-  exact hnp
-exact hnq hq
+intro hpq
+apply hpq
+apply h
+assumption hpq
 
-theorem problem2_j using NJp : ((p -> q) ↔ (((p -> q) -> p) -> q)) := by
-constructor
+theorem problem2_j using NJp : ((p -> q) -> (((p -> q) -> p) -> q)) := by
 intro hpq
 intro h
-exact hpq (h hpq)
-intro h
-intro hp
-have hpqp : (p -> q) -> p := by
-  intro hpq
-  exact hp
-exact h hpqp
+apply hpq
+apply h
+assumption hpq
 
-theorem problem3_a using NJp : ((¬q -> q) ↔ ¬¬q) := by
-constructor
+theorem problem3_a using NJp : (((q -> ⊥) -> q) -> ((q -> ⊥) -> ⊥)) := by
 intro h
 intro hnq
-have hq : q := h hnq
-exact hnq hq
-intro hnnq
-intro hnq
-exact False.elim (hnnq hnq)
+apply hnq
+apply h
+assumption hnq
 
-theorem problem3_b using NJp : (((¬¬q -> q) -> ¬q) -> ¬q) := by
+theorem problem3_b using NJp : (((q -> ⊥) -> q) -> ((q -> ⊥) -> ⊥)) := by
 intro h
-intro q
-have hnnq_to_q : ¬¬q -> q := by
-  intro hnnq
-  exact q
-have hnq : ¬ q := h hnnq_to_q
-exact hnq q
+intro hnq
+apply hnq
+apply h
+assumption hnq

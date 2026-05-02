@@ -153,6 +153,108 @@ function formulaDisplay(f) {
   }
 }
 
+function propTokenize(input) {
+  const s = input.trim();
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) {
+      i += 1;
+      continue;
+    }
+    if (s.startsWith("->", i)) {
+      tokens.push({ t: "op", v: "->" });
+      i += 2;
+      continue;
+    }
+    if (c === "⊥") {
+      tokens.push({ t: "bottom", v: "⊥" });
+      i += 1;
+      continue;
+    }
+    if (c === "(" || c === ")") {
+      tokens.push({ t: c, v: c });
+      i += 1;
+      continue;
+    }
+    if (c === "∨" || c === "∧") {
+      tokens.push({ t: "op", v: c });
+      i += 1;
+      continue;
+    }
+    if (/[A-Za-z0-9_]/.test(c)) {
+      let j = i + 1;
+      while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j += 1;
+      tokens.push({ t: "id", v: s.slice(i, j) });
+      i = j;
+      continue;
+    }
+    throw new Error(`Unexpected token '${c}' in proposition formula.`);
+  }
+  return tokens;
+}
+
+function parsePropFormula(text) {
+  const tokens = propTokenize(text);
+  let i = 0;
+  function peek() { return tokens[i]; }
+  function consume() { return tokens[i++]; }
+  function parseAtom() {
+    const tk = peek();
+    if (!tk) throw new Error("Unexpected end of proposition formula.");
+    if (tk.t === "id") {
+      consume();
+      return { k: "atom", n: tk.v };
+    }
+    if (tk.t === "bottom") {
+      consume();
+      return { k: "bottom" };
+    }
+    if (tk.t === "(") {
+      consume();
+      const inner = parseImp();
+      if (!peek() || peek().t !== ")") throw new Error("Missing closing ')' in proposition formula.");
+      consume();
+      return inner;
+    }
+    throw new Error(`Unexpected token '${tk.v || tk.t}' in proposition formula.`);
+  }
+  function parseAndOr() {
+    let left = parseAtom();
+    while (peek() && peek().t === "op" && (peek().v === "∨" || peek().v === "∧")) {
+      const op = consume().v;
+      const right = parseAtom();
+      left = { k: op === "∨" ? "or" : "and", l: left, r: right };
+    }
+    return left;
+  }
+  function parseImp() {
+    let left = parseAndOr();
+    if (peek() && peek().t === "op" && peek().v === "->") {
+      consume();
+      const right = parseImp();
+      return { k: "imp", l: left, r: right };
+    }
+    return left;
+  }
+  const out = parseImp();
+  if (i !== tokens.length) throw new Error("Unexpected trailing proposition tokens.");
+  return out;
+}
+
+function propDisplay(f) {
+  if (!f) return "?";
+  switch (f.k) {
+    case "atom": return String(f.n);
+    case "bottom": return "⊥";
+    case "imp": return `(${propDisplay(f.l)} -> ${propDisplay(f.r)})`;
+    case "or": return `(${propDisplay(f.l)} ∨ ${propDisplay(f.r)})`;
+    case "and": return `(${propDisplay(f.l)} ∧ ${propDisplay(f.r)})`;
+    default: return "?";
+  }
+}
+
 function formulaLean(f) {
   switch (f.k) {
     case "atom": return `LinearFormula.atom ${JSON.stringify(f.n)}`;
@@ -235,6 +337,16 @@ function isKnownSurfaceSystem(system) {
     "NK",
     "SYSTEM_F IN ND",
   ].includes(normalized);
+}
+
+function isPropInteractiveSystem(system) {
+  const normalized = normalizedSystem(system);
+  return ["NJP", "NKP", "LJP", "LKP", "NJ", "NK", "LJ", "LK"].includes(normalized);
+}
+
+function isClassicalPropSystem(system) {
+  const normalized = normalizedSystem(system);
+  return ["NKP", "LKP", "NK", "LK"].includes(normalized);
 }
 
 function compileLinear(thm) {
@@ -434,6 +546,111 @@ function goalToView(goal, i) {
   };
 }
 
+function propGoalToView(goal, i) {
+  return {
+    id: `goal:${i + 1}`,
+    hypotheses: goal.ctx.map((h) => ({ name: h.n, type: propDisplay(h.f) })),
+    target: propDisplay(goal.target),
+  };
+}
+
+function goalsAtCursorProp(thm, cursorLine, cursorCharacter) {
+  if (!isPropInteractiveSystem(thm.system)) {
+    return { ok: false, error: diagnostic(thm.line, "SYSTEM_UNSUPPORTED", "Unsupported interactive proposition system.") };
+  }
+  let target;
+  try {
+    target = parsePropFormula(thm.statement);
+  } catch (e) {
+    return { ok: false, error: diagnostic(thm.line, "FORMULA_PARSE", String(e.message || e)) };
+  }
+  const root = { ctx: [], target };
+  const goals = [root];
+  for (const tacLine of thm.tactics) {
+    if (tacLine.line > cursorLine) break;
+    if (tacLine.line === cursorLine && cursorCharacter <= (tacLine.startChar || 0)) break;
+    if (goals.length === 0) return { ok: false, error: diagnostic(tacLine.line, "NO_GOALS", "No open goals for tactic.") };
+    const goal = goals.shift();
+    const tac = parseTactic(tacLine.text, tacLine.line);
+    if (tac.err) return { ok: false, error: tac.err };
+
+    if (tac.name === "intro") {
+      if (!goal.target || goal.target.k !== "imp") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`intro` expects an implication goal.") };
+      const h = tac.args[0] || `h${goal.ctx.length + 1}`;
+      goals.unshift({ ctx: [{ n: h, f: goal.target.l }].concat(goal.ctx), target: goal.target.r });
+      continue;
+    }
+    if (tac.name === "cases") {
+      const m = tacLine.text.match(/^cases\s+at\s+([A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)$/);
+      if (!m) return { ok: false, error: diagnostic(tac.line, "TACTIC_ARGS", "`cases` usage: cases at h as h1 h2") };
+      const [, src, leftName, rightName] = m;
+      const idx = goal.ctx.findIndex((x) => x.n === src);
+      if (idx < 0) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown hypothesis \`${src}\`.`) };
+      const found = goal.ctx[idx];
+      if (!found.f || found.f.k !== "or") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`cases` expects a disjunction hypothesis.") };
+      const base = goal.ctx.slice(0, idx).concat(goal.ctx.slice(idx + 1));
+      const gRight = { ctx: [{ n: rightName, f: found.f.r }].concat(base), target: goal.target };
+      const gLeft = { ctx: [{ n: leftName, f: found.f.l }].concat(base), target: goal.target };
+      goals.unshift(gRight);
+      goals.unshift(gLeft);
+      continue;
+    }
+    if (tac.name === "left") {
+      if (!goal.target || goal.target.k !== "or") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`left` expects a disjunction goal.") };
+      goals.unshift({ ctx: goal.ctx.slice(), target: goal.target.l });
+      continue;
+    }
+    if (tac.name === "right") {
+      if (!goal.target || goal.target.k !== "or") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`right` expects a disjunction goal.") };
+      goals.unshift({ ctx: goal.ctx.slice(), target: goal.target.r });
+      continue;
+    }
+    if (tac.name === "assumption") {
+      const h = tac.args[0];
+      if (!h) return { ok: false, error: diagnostic(tac.line, "TACTIC_ARGS", "`assumption` requires a hypothesis name.") };
+      const found = goal.ctx.find((x) => x.n === h);
+      if (!found) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown hypothesis \`${h}\`.`) };
+      if (!formulaEq(found.f, goal.target)) return { ok: false, error: diagnostic(tac.line, "ASSUMPTION_MISMATCH", `Hypothesis \`${h}\` does not match goal.`) };
+      continue;
+    }
+    if (tac.name === "apply") {
+      const h = tac.args[0];
+      if (!h) return { ok: false, error: diagnostic(tac.line, "TACTIC_ARGS", "`apply` requires a hypothesis name.") };
+      const found = goal.ctx.find((x) => x.n === h);
+      if (!found) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown hypothesis \`${h}\`.`) };
+      if (!found.f || found.f.k !== "imp") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`apply` expects implication hypothesis.") };
+      if (!formulaEq(found.f.r, goal.target)) return { ok: false, error: diagnostic(tac.line, "APPLY_MISMATCH", `Conclusion of \`${h}\` does not match goal.`) };
+      goals.unshift({ ctx: goal.ctx.slice(), target: found.f.l });
+      continue;
+    }
+    if (tac.name === "by_contra") {
+      if (!isClassicalPropSystem(thm.system)) {
+        return { ok: false, error: diagnostic(tac.line, "TACTIC_FORBIDDEN", "`by_contra` is only allowed in classical systems (NK/NKP/LK/LKP).") };
+      }
+      const h = tac.args[0] || `h${goal.ctx.length + 1}`;
+      goals.unshift({
+        ctx: [{ n: h, f: { k: "imp", l: goal.target, r: { k: "bottom" } } }].concat(goal.ctx),
+        target: { k: "bottom" },
+      });
+      continue;
+    }
+    return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", `Unsupported proposition tactic \`${tac.name}\`.`) };
+  }
+  return { ok: true, goals };
+}
+
+function compileProp(thm) {
+  if (!isPropInteractiveSystem(thm.system)) {
+    return { ok: false, error: diagnostic(thm.line, "SYSTEM_UNSUPPORTED", "Unsupported proposition system.") };
+  }
+  const snap = goalsAtCursorProp(thm, Number.POSITIVE_INFINITY, 0);
+  if (!snap.ok) return { ok: false, error: snap.error };
+  if (snap.goals.length > 0) {
+    return { ok: false, error: diagnostic(thm.line, "UNCLOSED_GOALS", "Proof ended before all goals were solved.") };
+  }
+  return { ok: true };
+}
+
 function renderNode(node, indent) {
   const pad = " ".repeat(indent);
   if (node.k === "assumption") return `${pad}exact LinearLogic.assumption`;
@@ -558,16 +775,22 @@ function checkDocument(params) {
   const diagnostics = parsed.diagnostics.slice();
   const theoremStatuses = [];
   for (const thm of parsed.theorems) {
-    if (!isLinearExtractableSystem(thm.system)) {
-      theoremStatuses.push({ name: thm.name, line: thm.line, verified: false });
-      if (!isKnownSurfaceSystem(thm.system)) {
-        diagnostics.push(diagnostic(thm.line, "SYSTEM_UNKNOWN", `Unknown proof system \`${thm.system}\`.`));
-      }
+    if (isLinearExtractableSystem(thm.system)) {
+      const compiled = compileLinear(thm);
+      theoremStatuses.push({ name: thm.name, line: thm.line, verified: !!compiled.ok });
+      if (!compiled.ok) diagnostics.push(compiled.error);
       continue;
     }
-    const compiled = compileLinear(thm);
-    theoremStatuses.push({ name: thm.name, line: thm.line, verified: !!compiled.ok });
-    if (!compiled.ok) diagnostics.push(compiled.error);
+    if (isPropInteractiveSystem(thm.system)) {
+      const compiled = compileProp(thm);
+      theoremStatuses.push({ name: thm.name, line: thm.line, verified: !!compiled.ok });
+      if (!compiled.ok) diagnostics.push(compiled.error);
+      continue;
+    }
+    theoremStatuses.push({ name: thm.name, line: thm.line, verified: false });
+    if (!isKnownSurfaceSystem(thm.system)) {
+      diagnostics.push(diagnostic(thm.line, "SYSTEM_UNKNOWN", `Unknown proof system \`${thm.system}\`.`));
+    }
   }
 
   let goals = [];
@@ -583,18 +806,36 @@ function checkDocument(params) {
       const endLine = next ? next.line - 1 : Number.POSITIVE_INFINITY;
       return cursorLine >= thm.line && cursorLine <= endLine;
     });
-    if (active && isLinearExtractableSystem(active.system)) {
-      const snap = goalsAtCursorLinear(active, cursorLine, cursorCharacter);
-      if (snap.ok) {
-        goals = snap.goals.map(goalToView);
-      } else {
-        diagnostics.push(snap.error);
+    if (active) {
+      if (isLinearExtractableSystem(active.system)) {
+        const snap = goalsAtCursorLinear(active, cursorLine, cursorCharacter);
+        if (snap.ok) {
+          goals = snap.goals.map(goalToView);
+        } else {
+          diagnostics.push(snap.error);
+        }
+      } else if (isPropInteractiveSystem(active.system)) {
+        const snap = goalsAtCursorProp(active, cursorLine, cursorCharacter);
+        if (snap.ok) {
+          goals = snap.goals.map(propGoalToView);
+        } else {
+          diagnostics.push(snap.error);
+        }
       }
     }
   }
 
+  const seenDiag = new Set();
+  const dedupedDiagnostics = [];
+  for (const d of diagnostics) {
+    const key = `${d.code}|${d.message}|${d.range.start.line}|${d.range.start.character}`;
+    if (seenDiag.has(key)) continue;
+    seenDiag.add(key);
+    dedupedDiagnostics.push(d);
+  }
+
   return {
-    diagnostics,
+    diagnostics: dedupedDiagnostics,
     goals,
     display: {
       title: "proofAssistant",

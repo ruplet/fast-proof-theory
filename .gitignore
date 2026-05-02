@@ -44,3 +44,4 @@ Thumbs.db
 *.log
 *.tmp
 /.lake
+demo/extracted/
