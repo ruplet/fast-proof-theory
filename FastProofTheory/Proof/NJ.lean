@@ -10,7 +10,56 @@ variable {L : FirstOrder.Language.{u, v}}
 variable {α : Type w}
 variable [DecidableEq α]
 
+inductive NJp : List (L.Formula α) → L.Formula α → Prop where
+  | hypothesis {assumptions formula} :
+      formula ∈ assumptions →
+      NJp assumptions formula
+
+  | andIntroduction {assumptions leftFormula rightFormula} :
+      NJp assumptions leftFormula →
+      NJp assumptions rightFormula →
+      NJp assumptions (leftFormula ⊓ rightFormula)
+
+  | andEliminationLeft {assumptions leftFormula rightFormula} :
+      NJp assumptions (leftFormula ⊓ rightFormula) →
+      NJp assumptions leftFormula
+
+  | andEliminationRight {assumptions leftFormula rightFormula} :
+      NJp assumptions (leftFormula ⊓ rightFormula) →
+      NJp assumptions rightFormula
+
+  | orIntroductionLeft {assumptions leftFormula rightFormula} :
+      NJp assumptions leftFormula →
+      NJp assumptions (leftFormula ⊔ rightFormula)
+
+  | orIntroductionRight {assumptions leftFormula rightFormula} :
+      NJp assumptions rightFormula →
+      NJp assumptions (leftFormula ⊔ rightFormula)
+
+  | orElimination {assumptions leftFormula rightFormula conclusion} :
+      NJp assumptions (leftFormula ⊔ rightFormula) →
+      NJp (leftFormula :: assumptions) conclusion →
+      NJp (rightFormula :: assumptions) conclusion →
+      NJp assumptions conclusion
+
+  | implicationIntroduction {assumptions antecedent consequent} :
+      NJp (antecedent :: assumptions) consequent →
+      NJp assumptions (antecedent.imp consequent)
+
+  | implicationElimination {assumptions antecedent consequent} :
+      NJp assumptions (antecedent.imp consequent) →
+      NJp assumptions antecedent →
+      NJp assumptions consequent
+
+  | falseElimination {assumptions formula} :
+      NJp assumptions (⊥ : L.Formula α) →
+      NJp assumptions formula
+
 inductive NJ : List (L.Formula α) → L.Formula α → Prop where
+  | fromNJp {assumptions formula} :
+      NJp assumptions formula →
+      NJ assumptions formula
+
   | hypothesis {assumptions formula} :
       formula ∈ assumptions →
       NJ assumptions formula

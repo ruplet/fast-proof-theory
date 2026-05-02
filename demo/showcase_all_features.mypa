@@ -1,22 +1,17 @@
 -- Product-facing checked examples.
 
-def ll_currying using LL in GENTZEN with LL : (a ⊗ b) ⊸ (b ⊗ a) := by
-rlolli h
-ltensor at h as ha hb
+def ll_tensor_swap_intro using LL in GENTZEN with LL : a ⊸ b ⊸ (b ⊗ a) := by
+rlolli ha
+rlolli hb
 rtensor hb
 ax hb
 ax ha
 
-def llbang_copy_pair using LL! in GENTZEN with LL! : !(a & b) ⊸ (!a ⊗ !b) := by
+def ll_with_dup using LL in GENTZEN with LL : a ⊸ (a & a) := by
 rlolli h
-lbang at h
-rtensor
-rbang
-lleft at h as ha
-ax ha
-rbang
-lright at h as hb
-ax hb
+rwith
+ax h
+ax h
 
 theorem njp_or_comm using NJp : (p ∨ q) -> (q ∨ p) := by
 intro h

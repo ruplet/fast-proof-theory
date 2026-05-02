@@ -133,6 +133,26 @@ function formulaEq(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function formulaDisplay(f) {
+  if (!f) return "?";
+  switch (f.k) {
+    case "atom":
+      return String(f.n);
+    case "bang":
+      return `!${formulaDisplay(f.a)}`;
+    case "tensor":
+      return `(${formulaDisplay(f.l)} ⊗ ${formulaDisplay(f.r)})`;
+    case "with":
+      return `(${formulaDisplay(f.l)} & ${formulaDisplay(f.r)})`;
+    case "plus":
+      return `(${formulaDisplay(f.l)} ⊕ ${formulaDisplay(f.r)})`;
+    case "lolli":
+      return `(${formulaDisplay(f.l)} -> ${formulaDisplay(f.r)})`;
+    default:
+      return "?";
+  }
+}
+
 function formulaLean(f) {
   switch (f.k) {
     case "atom": return `LinearFormula.atom ${JSON.stringify(f.n)}`;
@@ -174,7 +194,8 @@ function parseDocument(text) {
         continue;
       }
       if (/^(def|theorem)\s+/.test(t)) break;
-      tactics.push({ line: i, text: t });
+      const firstNonWs = lines[i].search(/\S/);
+      tactics.push({ line: i, text: t, startChar: firstNonWs < 0 ? 0 : firstNonWs });
       i += 1;
     }
     theorems.push({ name, system, statement, tactics, line: startLine });
@@ -188,8 +209,36 @@ function parseTactic(line, lineNo) {
   return { name: parts[0], args: parts.slice(1), line: lineNo };
 }
 
+function normalizedSystem(system) {
+  return system
+    .replace(/\s+with\s+.*$/i, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function isLinearExtractableSystem(system) {
+  const normalized = normalizedSystem(system);
+  return /^(LL|LL!) IN GENTZEN$/.test(normalized);
+}
+
+function isKnownSurfaceSystem(system) {
+  const normalized = normalizedSystem(system);
+  return [
+    "LJP",
+    "LKP",
+    "NJP",
+    "NKP",
+    "LJ",
+    "LK",
+    "NJ",
+    "NK",
+    "SYSTEM_F IN ND",
+  ].includes(normalized);
+}
+
 function compileLinear(thm) {
-  if (!(thm.system.includes("LL") && thm.system.toUpperCase().includes("GENTZEN"))) {
+  if (!isLinearExtractableSystem(thm.system)) {
     return { ok: false, error: diagnostic(thm.line, "SYSTEM_UNSUPPORTED", "Only linear `using LL in GENTZEN ...` is extractable.") };
   }
   let target;
@@ -250,9 +299,6 @@ function compileLinear(thm) {
     }
     if (tac.name === "rtensor") {
       if (goal.target.k !== "tensor") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rtensor` expects `A ⊗ B` goal.") };
-      if (goal.ctx.length > 2) {
-        return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", "`rtensor` with more than two linear hypotheses is not supported in this extractor yet.") };
-      }
       const hint = tac.args[0];
       let leftCtx = [];
       let rightCtx = goal.ctx.slice();
@@ -261,6 +307,8 @@ function compileLinear(thm) {
         if (idx < 0) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown split hint \`${hint}\`.`) };
         leftCtx = [goal.ctx[idx]];
         rightCtx = goal.ctx.slice(0, idx).concat(goal.ctx.slice(idx + 1));
+      } else if (goal.ctx.length > 2) {
+        return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", "`rtensor` with more than two linear hypotheses requires a split hint.") };
       }
       const left = { ctx: leftCtx, target: goal.target.l, node: null };
       const right = { ctx: rightCtx, target: goal.target.r, node: null };
@@ -284,6 +332,108 @@ function compileLinear(thm) {
   return { ok: true, root };
 }
 
+function goalsAtCursorLinear(thm, cursorLine, cursorCharacter) {
+  if (!isLinearExtractableSystem(thm.system)) {
+    return { ok: false, error: diagnostic(thm.line, "SYSTEM_UNSUPPORTED", "Only linear `using LL in GENTZEN ...` is extractable.") };
+  }
+  let target;
+  try {
+    target = parseFormula(thm.statement);
+  } catch (e) {
+    return { ok: false, error: diagnostic(thm.line, "FORMULA_PARSE", String(e.message || e)) };
+  }
+  const root = { ctx: [], target, node: null };
+  const goals = [root];
+  for (const tacLine of thm.tactics) {
+    if (tacLine.line > cursorLine) break;
+    if (tacLine.line === cursorLine && cursorCharacter <= (tacLine.startChar || 0)) break;
+    if (goals.length === 0) return { ok: false, error: diagnostic(tacLine.line, "NO_GOALS", "No open goals for tactic.") };
+    const goal = goals.shift();
+    const tac = parseTactic(tacLine.text, tacLine.line);
+    if (tac.err) return { ok: false, error: tac.err };
+    if (tac.name === "rlolli") {
+      if (!goal.target || goal.target.k !== "lolli") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rlolli` expects a lolli goal.") };
+      const h = tac.args[0] || `h${goal.ctx.length + 1}`;
+      const sub = { ctx: [{ n: h, f: goal.target.l }].concat(goal.ctx), target: goal.target.r, node: null };
+      goal.node = { k: "lolliRight", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "ax") {
+      const h = tac.args[0];
+      if (!h) return { ok: false, error: diagnostic(tac.line, "TACTIC_ARGS", "`ax` requires a hypothesis name.") };
+      const found = goal.ctx.find((x) => x.n === h);
+      if (!found) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown hypothesis \`${h}\`.`) };
+      if (!formulaEq(found.f, goal.target)) return { ok: false, error: diagnostic(tac.line, "AX_MISMATCH", `Hypothesis \`${h}\` does not match goal.`) };
+      if (goal.ctx.length !== 1) {
+        return { ok: false, error: diagnostic(tac.line, "LINEAR_CONTEXT", "`ax` requires exactly one linear hypothesis in scope.") };
+      }
+      goal.node = { k: "assumption", formula: goal.target };
+      continue;
+    }
+    if (tac.name === "rwith") {
+      if (goal.target.k !== "with") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rwith` expects `A & B` goal.") };
+      const left = { ctx: goal.ctx.slice(), target: goal.target.l, node: null };
+      const right = { ctx: goal.ctx.slice(), target: goal.target.r, node: null };
+      goal.node = { k: "withRight", left, right };
+      goals.unshift(right);
+      goals.unshift(left);
+      continue;
+    }
+    if (tac.name === "rplusl") {
+      if (goal.target.k !== "plus") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rplusl` expects `A ⊕ B` goal.") };
+      const sub = { ctx: goal.ctx.slice(), target: goal.target.l, node: null };
+      goal.node = { k: "plusRightLeft", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "rplusr") {
+      if (goal.target.k !== "plus") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rplusr` expects `A ⊕ B` goal.") };
+      const sub = { ctx: goal.ctx.slice(), target: goal.target.r, node: null };
+      goal.node = { k: "plusRightRight", sub };
+      goals.unshift(sub);
+      continue;
+    }
+    if (tac.name === "rtensor") {
+      if (goal.target.k !== "tensor") return { ok: false, error: diagnostic(tac.line, "TACTIC_MISMATCH", "`rtensor` expects `A ⊗ B` goal.") };
+      const hint = tac.args[0];
+      let leftCtx = [];
+      let rightCtx = goal.ctx.slice();
+      if (hint) {
+        const idx = goal.ctx.findIndex((x) => x.n === hint);
+        if (idx < 0) return { ok: false, error: diagnostic(tac.line, "UNKNOWN_HYP", `Unknown split hint \`${hint}\`.`) };
+        leftCtx = [goal.ctx[idx]];
+        rightCtx = goal.ctx.slice(0, idx).concat(goal.ctx.slice(idx + 1));
+      } else if (goal.ctx.length > 2) {
+        return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", "`rtensor` with more than two linear hypotheses requires a split hint.") };
+      }
+      const left = { ctx: leftCtx, target: goal.target.l, node: null };
+      const right = { ctx: rightCtx, target: goal.target.r, node: null };
+      goal.node = {
+        k: "tensorRight",
+        left,
+        right,
+        goalCtx: goal.ctx.map((x) => x.f),
+        leftFormula: goal.target.l,
+        rightFormula: goal.target.r,
+      };
+      goals.unshift(right);
+      goals.unshift(left);
+      continue;
+    }
+    return { ok: false, error: diagnostic(tac.line, "TACTIC_UNSUPPORTED", `Unsupported linear tactic \`${tac.name}\`.`) };
+  }
+  return { ok: true, goals };
+}
+
+function goalToView(goal, i) {
+  return {
+    id: `goal:${i + 1}`,
+    hypotheses: goal.ctx.map((h) => ({ name: h.n, type: formulaDisplay(h.f) })),
+    target: formulaDisplay(goal.target),
+  };
+}
+
 function renderNode(node, indent) {
   const pad = " ".repeat(indent);
   if (node.k === "assumption") return `${pad}exact LinearLogic.assumption`;
@@ -300,8 +450,8 @@ function renderNode(node, indent) {
     return `${pad}apply LinearLogic.plusRightRight\n${renderNode(node.sub.node, indent)}`;
   }
   if (node.k === "tensorRight") {
-    const leftAnt = listLean(builtAntecedent(node.left.node));
-    const rightAnt = listLean(builtAntecedent(node.right.node));
+    const leftAnt = listLean(contextFormulas(node.left.ctx));
+    const rightAnt = listLean(contextFormulas(node.right.ctx));
     const body =
       `${pad}apply (LinearLogic.tensorRight ` +
       `(leftAntecedent := ${leftAnt}) ` +
@@ -323,8 +473,12 @@ function builtAntecedent(node) {
   if (node.k === "lolliRight") return builtAntecedent(node.sub.node).slice(1);
   if (node.k === "withRight") return builtAntecedent(node.left.node);
   if (node.k === "plusRightLeft" || node.k === "plusRightRight") return builtAntecedent(node.sub.node);
-  if (node.k === "tensorRight") return builtAntecedent(node.left.node).concat(builtAntecedent(node.right.node));
+  if (node.k === "tensorRight") return contextFormulas(node.left.ctx).concat(contextFormulas(node.right.ctx));
   return [];
+}
+
+function contextFormulas(ctx) {
+  return (ctx || []).map((x) => x.f);
 }
 
 function wrapExchangeLeft(body, built, expected, indent) {
@@ -404,18 +558,49 @@ function checkDocument(params) {
   const diagnostics = parsed.diagnostics.slice();
   const theoremStatuses = [];
   for (const thm of parsed.theorems) {
+    if (!isLinearExtractableSystem(thm.system)) {
+      theoremStatuses.push({ name: thm.name, line: thm.line, verified: false });
+      if (!isKnownSurfaceSystem(thm.system)) {
+        diagnostics.push(diagnostic(thm.line, "SYSTEM_UNKNOWN", `Unknown proof system \`${thm.system}\`.`));
+      }
+      continue;
+    }
     const compiled = compileLinear(thm);
     theoremStatuses.push({ name: thm.name, line: thm.line, verified: !!compiled.ok });
     if (!compiled.ok) diagnostics.push(compiled.error);
   }
+
+  let goals = [];
+  const cursorLine = params && params.cursor && Number.isInteger(params.cursor.line)
+    ? params.cursor.line
+    : null;
+  const cursorCharacter = params && params.cursor && Number.isInteger(params.cursor.character)
+    ? params.cursor.character
+    : 0;
+  if (cursorLine !== null) {
+    const active = parsed.theorems.find((thm, idx) => {
+      const next = parsed.theorems[idx + 1];
+      const endLine = next ? next.line - 1 : Number.POSITIVE_INFINITY;
+      return cursorLine >= thm.line && cursorLine <= endLine;
+    });
+    if (active && isLinearExtractableSystem(active.system)) {
+      const snap = goalsAtCursorLinear(active, cursorLine, cursorCharacter);
+      if (snap.ok) {
+        goals = snap.goals.map(goalToView);
+      } else {
+        diagnostics.push(snap.error);
+      }
+    }
+  }
+
   return {
     diagnostics,
-    goals: [],
+    goals,
     display: {
       title: "proofAssistant",
       status: diagnostics.length ? "Errors detected." : "No parser/checker errors.",
       sections: [
-        { title: "Systems", body: ["Linear extraction enabled for `using LL in GENTZEN ...`."] },
+        { title: "Systems", body: ["Checked/extractable: `using LL in GENTZEN ...`. Other known demo systems are parsed but not marked verified."] },
       ],
     },
     theoremStatuses,
