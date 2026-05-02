@@ -1,0 +1,69 @@
+-- MyPA-checkable versions (NJp) using the currently supported tactic subset.
+
+theorem problem2_a using NJp : ((p -> q) -> (p -> q)) := by
+intro h
+assumption h
+
+theorem problem2_b using NJp : (p -> p) := by
+intro h
+assumption h
+
+theorem problem2_c_right using NJp : ((p ∨ q) -> (q ∨ p)) := by
+intro h
+cases at h as hp hq
+right
+assumption hp
+left
+assumption hq
+
+theorem problem2_d using NJp : (((p -> a) -> d) -> (((p -> b) -> d) -> ((p -> a) -> d))) := by
+intro hpa
+intro hpb
+intro h
+apply hpa
+assumption h
+
+theorem problem2_e using NJp : ((p -> q) -> ((r -> q) -> ((p ∨ r) -> q))) := by
+intro hpq
+intro hrq
+intro h
+cases at h as hp hr
+apply hpq
+assumption hp
+apply hrq
+assumption hr
+
+theorem problem2_f using NJp : (((d -> b) -> q) -> (b -> q)) := by
+intro h
+intro hb
+apply h
+intro hd
+assumption hb
+
+theorem problem2_g using NJp : (((p -> q) -> p) -> ((p -> q) -> q)) := by
+intro h
+intro hpq
+apply hpq
+apply h
+assumption hpq
+
+theorem problem2_j using NJp : ((p -> q) -> (((p -> q) -> p) -> q)) := by
+intro hpq
+intro h
+apply hpq
+apply h
+assumption hpq
+
+theorem problem3_a using NJp : (((q -> ⊥) -> q) -> ((q -> ⊥) -> ⊥)) := by
+intro h
+intro hnq
+apply hnq
+apply h
+assumption hnq
+
+theorem problem3_b using NJp : (((q -> ⊥) -> q) -> ((q -> ⊥) -> ⊥)) := by
+intro h
+intro hnq
+apply hnq
+apply h
+assumption hnq

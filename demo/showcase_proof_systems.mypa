@@ -1,0 +1,43 @@
+def ll_tensor_intro using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
+
+theorem njp_identity using NJp with IMP : a -> a := by
+intro h
+assumption h
+
+theorem njp_or_comm using NJp : (p ∨ q) -> (q ∨ p) := by
+intro h
+cases at h as hp hq
+right
+assumption hp
+left
+assumption hq
+
+theorem nkp_identity using NKp : a -> a := by
+intro h
+assumption h
+
+theorem nkp_double_negation using NKp : ((a -> ⊥) -> ⊥) -> a := by
+intro h
+by_contra na
+apply h
+assumption na
+
+theorem systemf_identity using SYSTEM_F in ND : (\x : p. x) has_type p -> p := by
+intro x
+exact x
+
+theorem systemf_poly_identity using SYSTEM_F in ND : (Lambda p. (\x : p. x)) has_type forall p. p -> p := by
+type_intro p
+intro x
+exact x
+
+theorem systemf_poly_identity_inst using SYSTEM_F in ND : ((Lambda p. (\x : p. x)) [q]) has_type q -> q := by
+type_apply p p -> p
+type_intro p
+intro x
+exact x

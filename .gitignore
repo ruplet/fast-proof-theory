@@ -1,1 +1,47 @@
-node_modules
+.tools
+
+*/.tmp/
+
+
+# Node.js / TypeScript
+node_modules/
+*/node_modules/
+out/
+*/out/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# CMake / C++
+build/
+*/build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Editor / OS
+.vscode/
+!.vscode/
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+/.lake
+demo/extracted/

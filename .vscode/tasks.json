@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "lsp_server: compile",
+      "type": "npm",
+      "script": "compile",
+      "path": "proofAssistant/lsp_server",
+      "group": "build",
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "extensionVSCode: compile",
+      "type": "npm",
+      "script": "compile",
+      "path": "proofAssistant/extensionVSCode",
+      "group": "build",
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "dev: compile extension + lsp",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "lsp_server: compile",
+        "extensionVSCode: compile"
+      ]
+    }
+  ]
+}

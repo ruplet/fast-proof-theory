@@ -1,0 +1,5 @@
+#help cllp_gentzen
+
+def smoke using LL in GENTZEN with LL : a ⊸ a := by
+rlolli h
+ax h

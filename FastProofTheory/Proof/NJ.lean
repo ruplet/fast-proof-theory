@@ -1,0 +1,127 @@
+import FastProofTheory.Proof.Common
+
+open FirstOrder
+
+namespace FastProofTheory.Proof
+
+universe u v w
+
+variable {L : FirstOrder.Language.{u, v}}
+variable {α : Type w}
+variable [DecidableEq α]
+
+inductive NJp : List (L.Formula α) → L.Formula α → Prop where
+  | hypothesis {assumptions formula} :
+      formula ∈ assumptions →
+      NJp assumptions formula
+
+  | andIntroduction {assumptions leftFormula rightFormula} :
+      NJp assumptions leftFormula →
+      NJp assumptions rightFormula →
+      NJp assumptions (leftFormula ⊓ rightFormula)
+
+  | andEliminationLeft {assumptions leftFormula rightFormula} :
+      NJp assumptions (leftFormula ⊓ rightFormula) →
+      NJp assumptions leftFormula
+
+  | andEliminationRight {assumptions leftFormula rightFormula} :
+      NJp assumptions (leftFormula ⊓ rightFormula) →
+      NJp assumptions rightFormula
+
+  | orIntroductionLeft {assumptions leftFormula rightFormula} :
+      NJp assumptions leftFormula →
+      NJp assumptions (leftFormula ⊔ rightFormula)
+
+  | orIntroductionRight {assumptions leftFormula rightFormula} :
+      NJp assumptions rightFormula →
+      NJp assumptions (leftFormula ⊔ rightFormula)
+
+  | orElimination {assumptions leftFormula rightFormula conclusion} :
+      NJp assumptions (leftFormula ⊔ rightFormula) →
+      NJp (leftFormula :: assumptions) conclusion →
+      NJp (rightFormula :: assumptions) conclusion →
+      NJp assumptions conclusion
+
+  | implicationIntroduction {assumptions antecedent consequent} :
+      NJp (antecedent :: assumptions) consequent →
+      NJp assumptions (antecedent.imp consequent)
+
+  | implicationElimination {assumptions antecedent consequent} :
+      NJp assumptions (antecedent.imp consequent) →
+      NJp assumptions antecedent →
+      NJp assumptions consequent
+
+  | falseElimination {assumptions formula} :
+      NJp assumptions (⊥ : L.Formula α) →
+      NJp assumptions formula
+
+inductive NJ : List (L.Formula α) → L.Formula α → Prop where
+  | fromNJp {assumptions formula} :
+      NJp assumptions formula →
+      NJ assumptions formula
+
+  | hypothesis {assumptions formula} :
+      formula ∈ assumptions →
+      NJ assumptions formula
+
+  | andIntroduction {assumptions leftFormula rightFormula} :
+      NJ assumptions leftFormula →
+      NJ assumptions rightFormula →
+      NJ assumptions (leftFormula ⊓ rightFormula)
+
+  | andEliminationLeft {assumptions leftFormula rightFormula} :
+      NJ assumptions (leftFormula ⊓ rightFormula) →
+      NJ assumptions leftFormula
+
+  | andEliminationRight {assumptions leftFormula rightFormula} :
+      NJ assumptions (leftFormula ⊓ rightFormula) →
+      NJ assumptions rightFormula
+
+  | orIntroductionLeft {assumptions leftFormula rightFormula} :
+      NJ assumptions leftFormula →
+      NJ assumptions (leftFormula ⊔ rightFormula)
+
+  | orIntroductionRight {assumptions leftFormula rightFormula} :
+      NJ assumptions rightFormula →
+      NJ assumptions (leftFormula ⊔ rightFormula)
+
+  | orElimination {assumptions leftFormula rightFormula conclusion} :
+      NJ assumptions (leftFormula ⊔ rightFormula) →
+      NJ (leftFormula :: assumptions) conclusion →
+      NJ (rightFormula :: assumptions) conclusion →
+      NJ assumptions conclusion
+
+  | implicationIntroduction {assumptions antecedent consequent} :
+      NJ (antecedent :: assumptions) consequent →
+      NJ assumptions (antecedent.imp consequent)
+
+  | implicationElimination {assumptions antecedent consequent} :
+      NJ assumptions (antecedent.imp consequent) →
+      NJ assumptions antecedent →
+      NJ assumptions consequent
+
+  | falseElimination {assumptions formula} :
+      NJ assumptions (⊥ : L.Formula α) →
+      NJ assumptions formula
+
+  | universalIntroduction {assumptions formulaBody eigenvariable} :
+      variableDoesNotOccurFreeInEveryFormula eigenvariable assumptions →
+      NJ assumptions (instantiateQuantifierBody formulaBody (FirstOrder.Language.Term.var eigenvariable)) →
+      NJ assumptions formulaBody.all
+
+  | universalElimination {assumptions formulaBody term} :
+      NJ assumptions formulaBody.all →
+      NJ assumptions (instantiateQuantifierBody formulaBody term)
+
+  | existentialIntroduction {assumptions formulaBody term} :
+      NJ assumptions (instantiateQuantifierBody formulaBody term) →
+      NJ assumptions formulaBody.ex
+
+  | existentialElimination {assumptions formulaBody conclusion eigenvariable} :
+      variableDoesNotOccurFreeInEveryFormula eigenvariable assumptions →
+      variableDoesNotOccurFreeInFormula eigenvariable conclusion →
+      NJ assumptions formulaBody.ex →
+      NJ ((instantiateQuantifierBody formulaBody (FirstOrder.Language.Term.var eigenvariable)) :: assumptions) conclusion →
+      NJ assumptions conclusion
+
+end FastProofTheory.Proof

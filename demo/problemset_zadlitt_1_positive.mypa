@@ -1,0 +1,24 @@
+theorem problem1_b using NJp : ((b ∨ c) -> a) -> ((b -> a) ∨ (c -> a)) := by
+intro h
+left
+intro hb
+apply h
+left
+assumption hb
+
+theorem problem1_c using NJp : (((a ∨ (a -> ⊥)) -> ⊥) -> ⊥) := by
+intro h
+apply h
+right
+intro ha
+apply h
+left
+assumption ha
+
+theorem problem1_e using NJp : ((((a -> ⊥) -> ⊥) -> ⊥) -> (a -> ⊥)) := by
+intro h
+intro ha
+apply h
+intro hna
+apply hna
+assumption ha

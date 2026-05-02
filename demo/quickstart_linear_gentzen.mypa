@@ -1,0 +1,29 @@
+-- Urzyczyn-style classical linear sequent calculus surface, using Paoli-style rule names.
+-- The currently checked subset in the engine covers `ax`, `rlolli`, `rtensor`, and `rwith`.
+
+def axiom_id using LL in GENTZEN with LL : a ⊸ a := by
+rlolli h
+ax h
+
+def tensor_right using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
+
+def with_right using LL in GENTZEN with LL : a ⊸ (a & a) := by
+rlolli h
+rwith
+ax h
+ax h
+
+def tensor_nested using LL in GENTZEN with LL : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
+rlolli ha
+rlolli hb
+rlolli hc
+rtensor ha
+ax ha
+rtensor hb
+ax hb
+ax hc
