@@ -1,7 +1,20 @@
 "use strict";
 
 const DOMAIN_INFO = {
-  symbolCompletions: [],
+  symbolCompletions: [
+    { label: "\\lolli", insertText: "⊸", detail: "Symbol", documentation: "Linear implication / lolli." },
+    { label: "\\imp", insertText: "->", detail: "Symbol", documentation: "Propositional implication." },
+    { label: "\\to", insertText: "->", detail: "Symbol", documentation: "Implication ASCII form accepted by MyPA." },
+    { label: "\\tensor", insertText: "⊗", detail: "Symbol", documentation: "Tensor / multiplicative conjunction." },
+    { label: "\\otimes", insertText: "⊗", detail: "Symbol", documentation: "Tensor / multiplicative conjunction." },
+    { label: "\\oplus", insertText: "⊕", detail: "Symbol", documentation: "Plus / additive disjunction." },
+    { label: "\\plus", insertText: "⊕", detail: "Symbol", documentation: "Plus / additive disjunction." },
+    { label: "\\and", insertText: "∧", detail: "Symbol", documentation: "Propositional conjunction." },
+    { label: "\\or", insertText: "∨", detail: "Symbol", documentation: "Propositional disjunction." },
+    { label: "\\with", insertText: "&", detail: "Symbol", documentation: "Linear additive conjunction." },
+    { label: "\\bang", insertText: "!", detail: "Symbol", documentation: "Linear exponential bang." },
+    { label: "\\bot", insertText: "⊥", detail: "Symbol", documentation: "Bottom / falsity." },
+  ],
   directives: [
     {
       label: "#help",

@@ -14,7 +14,7 @@
       "outFiles": [
         "${workspaceFolder}/proofAssistant/extensionVSCode/out/**/*.js"
       ],
-      "preLaunchTask": "dev: compile extension + lsp"
+      "preLaunchTask": "compile:vscode"
     }
   ]
 }

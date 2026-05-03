@@ -62,6 +62,7 @@ Keep the Node package structure minimal:
 - `proofAssistant/webMonaco/package.json`: dependencies needed by users building the static Monaco website.
 - `proofAssistant/extensionVSCode/package.json`: dependencies needed by users installing/building the VS Code extension. Do not include Monaco or Playwright here.
 - Do not add package files for `lsp_core`, `lsp_server`, `lsp_browser`, or e2e unless the package boundary is intentionally redesigned.
+- When package boundaries or scripts change, update `.vscode/tasks.json` and extension launch configs in the same change. F5 debugging must use existing scripts and must not reference removed package manifests.
 - Never use `--no-audit`, `--no-fund`, or `--ignore-scripts` for npm commands unless explicitly instructed. Security audits matter.
 
 ## UI Verification Policy
