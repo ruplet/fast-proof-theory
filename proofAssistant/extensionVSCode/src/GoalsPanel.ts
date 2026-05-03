@@ -1,33 +1,6 @@
 // GoalsPanel.ts
 import * as vscode from "vscode";
-
-export type Hypothesis = {
-  name: string;
-  type: string;
-};
-
-export type Goal = {
-  id?: string;
-  hypotheses: Hypothesis[];
-  target: string;
-};
-
-export type DisplaySection = {
-  title: string;
-  body: string[];
-};
-
-export type ProofDisplay = {
-  title: string;
-  status: string;
-  sections: DisplaySection[];
-};
-
-export type ProofState = {
-  goals: Goal[];
-  display?: ProofDisplay;
-  tone?: "normal" | "error";
-};
+import { ProofState } from "../../proofStateUi/types";
 
 type WebviewMsg =
   | { type: "setState"; state: ProofState }
@@ -40,10 +13,11 @@ export class GoalsPanel implements vscode.Disposable {
 
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
     this.panel = panel;
+    const sharedUiUri = vscode.Uri.joinPath(extensionUri, "proofStateUi");
 
     this.panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [extensionUri],
+      localResourceRoots: [extensionUri, sharedUiUri],
     };
 
     this.panel.webview.html = this.renderHtml(this.panel.webview, extensionUri);
@@ -74,7 +48,7 @@ export class GoalsPanel implements vscode.Disposable {
       { viewColumn, preserveFocus },
       {
         enableScripts: true,
-        localResourceRoots: [context.extensionUri],
+        localResourceRoots: [context.extensionUri, vscode.Uri.joinPath(context.extensionUri, "proofStateUi")],
         retainContextWhenHidden: true,
       }
     );
@@ -115,8 +89,12 @@ export class GoalsPanel implements vscode.Disposable {
 
   private renderHtml(webview: vscode.Webview, _extensionUri: vscode.Uri): string {
     const nonce = getNonce();
-    const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(_extensionUri, "media", "proof-state-renderer.css"));
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(_extensionUri, "media", "proof-state-renderer.js"));
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(_extensionUri, "proofStateUi", "proof-state-renderer.css")
+    );
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(_extensionUri, "proofStateUi", "proof-state-renderer.js")
+    );
     const csp = [
       `default-src 'none'`,
       `img-src ${webview.cspSource} https: data:`,

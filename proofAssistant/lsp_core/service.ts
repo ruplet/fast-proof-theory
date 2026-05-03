@@ -1,10 +1,9 @@
-import { CheckDocumentParams, DomainInfo, KernelCheckResponse } from "./types";
+import { CheckDocumentParams, DomainInfo, KernelCheckResponse } from "../protocol/types";
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const proofAssistant: {
+export type ProofBackend = {
   checkDocument: (params: CheckDocumentParams) => KernelCheckResponse;
-  domainInfo: DomainInfo;
-} = require("../../index.js");
+  getDomainInfo: () => DomainInfo;
+};
 
 function emptyDomainInfo(): DomainInfo {
   return {
@@ -16,10 +15,12 @@ function emptyDomainInfo(): DomainInfo {
   };
 }
 
-export class KernelClient {
+export class MyPaService {
+  constructor(private readonly backend: ProofBackend) {}
+
   checkDocument(params: CheckDocumentParams): KernelCheckResponse {
     try {
-      return proofAssistant.checkDocument(params);
+      return this.backend.checkDocument(params);
     } catch (err) {
       return {
         diagnostics: [
@@ -40,7 +41,7 @@ export class KernelClient {
 
   getDomainInfo(): DomainInfo {
     try {
-      return proofAssistant.domainInfo || emptyDomainInfo();
+      return this.backend.getDomainInfo() || emptyDomainInfo();
     } catch {
       return emptyDomainInfo();
     }

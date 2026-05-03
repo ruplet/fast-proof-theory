@@ -1,6 +1,6 @@
 declare module "vscode-languageserver/node" {
   export const ProposedFeatures: { all: unknown };
-  export const TextDocumentSyncKind: { Incremental: number };
+  export const TextDocumentSyncKind: { Full: number; Incremental: number };
   export enum DiagnosticSeverity {
     Error = 1,
     Warning = 2,

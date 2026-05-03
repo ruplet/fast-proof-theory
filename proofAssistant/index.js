@@ -840,9 +840,7 @@ function checkDocument(params) {
     display: {
       title: "proofAssistant",
       status: diagnostics.length ? "Errors detected." : "No parser/checker errors.",
-      sections: [
-        { title: "Systems", body: ["Checked/extractable: `using LL in GENTZEN ...`. Other known demo systems are parsed but not marked verified."] },
-      ],
+      sections: [],
     },
     theoremStatuses,
   };
@@ -860,8 +858,16 @@ function extractDocument(text, theoremName) {
   return { ok: true, source: theoremLean(thm, compiled.root) };
 }
 
-module.exports = {
+const mypaExports = {
   domainInfo: DOMAIN_INFO,
   checkDocument,
   extractDocument,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = mypaExports;
+}
+
+if (typeof globalThis !== "undefined") {
+  globalThis.__mypaProofAssistant = mypaExports;
+}

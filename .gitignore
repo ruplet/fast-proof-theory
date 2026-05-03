@@ -45,3 +45,5 @@ Thumbs.db
 *.tmp
 /.lake
 demo/extracted/
+test-results/
+proofAssistant/extensionVSCode/proofStateUi/

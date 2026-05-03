@@ -6,7 +6,18 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient";
-import { GoalsPanel, ProofState } from "./GoalsPanel";
+import { GoalsPanel } from "./GoalsPanel";
+import { DomainInfo, GoalsResponse, TheoremStatus } from "../../protocol/types";
+import { ProofState } from "../../proofStateUi/types";
+import {
+  completionsForLine,
+  emptyDomainInfo,
+  findTacticDoc,
+  firstKeywordToken,
+  isDomainInfo,
+  operatorMatches,
+  symbolCompletions,
+} from "../../languageSupport/features";
 
 let goalsPanel: GoalsPanel | undefined;
 let languageClient: LanguageClient | undefined;
@@ -16,63 +27,9 @@ let reqSeq = 0;
 let requestEpoch = 0;
 let verifiedTheoremDecoration: vscode.TextEditorDecorationType | undefined;
 
-type GoalsResponse =
-  | { kind: "ok"; reqId: string; goals: ProofState["goals"]; diagnostics: unknown[]; display?: ProofState["display"]; theoremStatuses?: TheoremStatus[] }
-  | { kind: "no_goals"; reqId: string; reason: string; diagnostics: unknown[]; display?: ProofState["display"]; theoremStatuses?: TheoremStatus[] }
-  | {
-      kind: "error";
-      reqId: string;
-      code: string;
-      message: string;
-      diagnostics: unknown[];
-      goals: ProofState["goals"];
-      display?: ProofState["display"];
-      theoremStatuses?: TheoremStatus[];
-    };
-
-type TheoremStatus = {
-  name: string;
-  line: number;
-  verified: boolean;
-};
-
 type GoalsRequestResult = {
   state: ProofState;
   theoremStatuses: TheoremStatus[];
-};
-
-type SymbolCompletion = {
-  label: string;
-  insertText: string;
-  detail: string;
-  documentation: string;
-};
-
-type DirectiveCompletion = SymbolCompletion;
-
-type TacticDoc = {
-  name: string;
-  title: string;
-  display: string;
-  summary: string;
-};
-
-type FormalSystemDoc = {
-  key: string;
-  aliases: string[];
-  title: string;
-  summary: string;
-  language: string[];
-  tactics: TacticDoc[];
-  checkedNow: string[];
-};
-
-type DomainInfo = {
-  symbolCompletions: SymbolCompletion[];
-  directives: DirectiveCompletion[];
-  systems: FormalSystemDoc[];
-  keywords: string[];
-  operators: string[];
 };
 
 let domainInfo: DomainInfo = emptyDomainInfo();
@@ -102,45 +59,6 @@ function isTheoremStatus(value: unknown): value is TheoremStatus {
     typeof value.name === "string" &&
     typeof value.line === "number" &&
     typeof value.verified === "boolean";
-}
-
-function emptyDomainInfo(): DomainInfo {
-  return {
-    symbolCompletions: [],
-    directives: [],
-    systems: [],
-    keywords: [],
-    operators: [],
-  };
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isDomainInfo(value: unknown): value is DomainInfo {
-  if (!isRecord(value)) return false;
-  return (
-    Array.isArray(value.symbolCompletions) &&
-    Array.isArray(value.directives) &&
-    Array.isArray(value.systems) &&
-    isStringArray(value.keywords) &&
-    isStringArray(value.operators)
-  );
-}
-
-function tacticDocsByName(info: DomainInfo): Map<string, TacticDoc> {
-  const docs = new Map<string, TacticDoc>();
-  for (const system of info.systems) {
-    for (const tactic of system.tactics) {
-      docs.set(tactic.name.toLowerCase(), tactic);
-    }
-  }
-  return docs;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const semanticTokenTypes = ["keyword", "operator", "comment"] as const;
@@ -186,7 +104,7 @@ async function startLanguageClient(context: vscode.ExtensionContext) {
   const cfg = vscode.workspace.getConfiguration("mypa");
   const configuredPath = cfg.get<string>("lspServerPath")?.trim();
   const serverModule =
-    configuredPath || path.resolve(context.extensionPath, "..", "lsp_server", "build", "server.js");
+    configuredPath || path.resolve(context.extensionPath, "out", "lsp_server", "src", "server.js");
   output?.appendLine(`[mypa] lsp.serverModule=${serverModule}`);
   if (configuredPath) {
     output?.appendLine("[mypa] lsp.serverModule source=config(mypa.lspServerPath)");
@@ -502,69 +420,30 @@ export async function activate(context: vscode.ExtensionContext) {
       provideCompletionItems(doc, position) {
         const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
 
-        if (linePrefix.startsWith("#help ")) {
-          const systemPrefix = linePrefix.slice("#help ".length).trimLeft();
-          const helpSystemCompletions = domainInfo.systems.flatMap((system) =>
-            [system.key, ...system.aliases].map((name) => ({
-              label: name,
-              insertText: name,
-              detail: system.title,
-              documentation: system.summary,
-            }))
-          );
-          return helpSystemCompletions
-            .filter((c) => !systemPrefix || c.label.startsWith(systemPrefix))
-            .map((c) => {
-              const item = new vscode.CompletionItem(
-                c.label,
-                vscode.CompletionItemKind.Reference
-              );
-              item.insertText = c.insertText;
-              item.detail = c.detail;
-              if (c.documentation) {
-                item.documentation = c.documentation;
-              }
-              const startCol = "#help ".length;
-              item.range = new vscode.Range(
-                position.line,
-                startCol,
-                position.line,
-                position.character
-              );
-              return item;
-            });
-        }
-
-        if (/^\s*#\w*$/.test(linePrefix) || /^\s*#$/.test(linePrefix)) {
-          const directivePrefix = linePrefix.trimLeft();
-          return domainInfo.directives
-            .filter((c) => !directivePrefix || c.label.startsWith(directivePrefix))
-            .map((c) => {
-              const item = new vscode.CompletionItem(
-                c.label,
-                vscode.CompletionItemKind.Keyword
-              );
-              item.insertText = c.insertText;
-              item.detail = c.detail;
-              if (c.documentation) {
-                item.documentation = c.documentation;
-              }
-              const hashCol = linePrefix.indexOf("#");
-              item.range = new vscode.Range(
-                position.line,
-                Math.max(hashCol, 0),
-                position.line,
-                position.character
-              );
-              return item;
-            });
+        const lineCompletions = completionsForLine(domainInfo, linePrefix);
+        if (lineCompletions.length) {
+          return lineCompletions.map((c) => {
+            const kind = c.kind === "system" ? vscode.CompletionItemKind.Reference : vscode.CompletionItemKind.Keyword;
+            const item = new vscode.CompletionItem(c.label, kind);
+            item.insertText = c.insertText;
+            item.detail = c.detail;
+            if (c.documentation) {
+              item.documentation = c.documentation;
+            }
+            item.range = new vscode.Range(
+              position.line,
+              c.replaceStartCharacter ?? position.character,
+              position.line,
+              position.character
+            );
+            return item;
+          });
         }
 
         const range = doc.getWordRangeAtPosition(position, /\\[\w]*/);
         const prefix = range ? doc.getText(range) : "";
 
-        const items = domainInfo.symbolCompletions
-          .filter((c) => !prefix || c.label.startsWith(prefix))
+        const items = symbolCompletions(domainInfo, prefix)
           .map((c) => {
             const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind.Snippet);
             item.insertText = c.insertText;
@@ -589,7 +468,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const range = doc.getWordRangeAtPosition(position, /[A-Za-z_][A-Za-z0-9_]*/);
       if (!range) return null;
       const word = doc.getText(range).toLowerCase();
-      const rule = tacticDocsByName(domainInfo).get(word);
+      const rule = findTacticDoc(domainInfo, word);
       if (!rule) return null;
       const md = new vscode.MarkdownString();
       md.isTrusted = false;
@@ -605,11 +484,6 @@ export async function activate(context: vscode.ExtensionContext) {
     {
       provideDocumentSemanticTokens(doc) {
         const builder = new vscode.SemanticTokensBuilder(semanticLegend);
-        const keywordSet = new Set(domainInfo.keywords.map((k) => k.toLowerCase()));
-        const operatorRe =
-          domainInfo.operators.length > 0
-            ? new RegExp(domainInfo.operators.map(escapeRegExp).join("|"), "g")
-            : undefined;
 
         for (let line = 0; line < doc.lineCount; line++) {
           const text = doc.lineAt(line).text;
@@ -620,18 +494,13 @@ export async function activate(context: vscode.ExtensionContext) {
             continue;
           }
 
-          const firstWord = (trimmed.match(/^([^\s]+)/) || [])[1];
-          if (firstWord && keywordSet.has(firstWord.toLowerCase())) {
-            const start = text.indexOf(firstWord);
-            builder.push(line, start, firstWord.length, semanticTokenTypes.indexOf("keyword"), 0);
+          const keyword = firstKeywordToken(domainInfo, text);
+          if (keyword) {
+            builder.push(line, keyword.start, keyword.length, semanticTokenTypes.indexOf("keyword"), 0);
           }
 
-          if (operatorRe) {
-            operatorRe.lastIndex = 0;
-            let m: RegExpExecArray | null;
-            while ((m = operatorRe.exec(text))) {
-              builder.push(line, m.index, m[0].length, semanticTokenTypes.indexOf("operator"), 0);
-            }
+          for (const op of operatorMatches(domainInfo, text)) {
+            builder.push(line, op.start, op.length, semanticTokenTypes.indexOf("operator"), 0);
           }
         }
 

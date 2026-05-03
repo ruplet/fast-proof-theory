@@ -1,4 +1,4 @@
-.PHONY: build build-lib build-exe check extract
+.PHONY: build build-lib build-exe check extract monaco-pages
 
 FILE ?= demo/smoke_linear_gentzen.mypa
 THEOREM ?= smoke
@@ -40,3 +40,12 @@ extract:
 # Allow: make check path/to/file.mypa
 %:
 	@:
+
+# Build a single-folder Monaco static site bundle for easy GitHub Pages publishing.
+# Result folder: dist/gh-pages-monaco
+monaco-pages:
+	npm install
+	npm run build:monaco
+	rm -rf dist/gh-pages-monaco
+	mkdir -p dist/gh-pages-monaco
+	cp -a proofAssistant/webMonaco/dist/. dist/gh-pages-monaco/

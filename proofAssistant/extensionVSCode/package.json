@@ -6,7 +6,14 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "main": "./out/extension.js",
+  "main": "./out/extensionVSCode/src/extension.js",
+  "files": [
+    "out/**",
+    "proofStateUi/**",
+    "media/**",
+    "language-configuration.json",
+    "package.json"
+  ],
   "categories": [
     "Programming Languages"
   ],
@@ -39,7 +46,7 @@
         "mypa.lspServerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the MyPA LSP server entrypoint (server.js). Leave empty to use ../lsp_server/build/server.js relative to the extension."
+          "description": "Path to the MyPA LSP server entrypoint (server.js). Leave empty to use the server bundled with this extension."
         }
       }
     },
@@ -50,18 +57,17 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p .",
-    "compile:all": "npm --prefix ../lsp_server run compile && npm run compile",
+    "compile": "tsc -p . && node ../scripts/copy-extension-assets.mjs",
     "watch": "tsc -p . -w",
     "build:kernel": "cd ../.. && lake build fast-proof-theory",
-    "vscode:prepublish": "npm run build:kernel && npm --prefix ../lsp_server run compile && npm run compile"
+    "vscode:prepublish": "npm run build:kernel && npm run compile"
   },
   "dependencies": {
-    "vscode-languageclient": "^6.1.4"
+    "vscode-languageclient": "^6.1.4",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "@types/vscode": "^1.90.0",
-    "typescript": "^5.0.0"
+    "@types/vscode": "^1.90.0"
   }
 }
