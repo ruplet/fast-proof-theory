@@ -1,0 +1,165 @@
+-- ILL examples from https://www.brics.dk/LS/96/6/BRICS-LS-96-6.pdf
+-- rules should be from Appendix A of the above, but similar to Urzyczyn
+-- Urzyczyn link: https://www.mimuw.edu.pl/~urzy/Litt/ll-reguly.pdf
+
+theorem ill_ex_01_tensor_comm using ILLp : (A ⊗ B) ⊸ (B ⊗ A) := by
+rlolli h
+ltensor at h as hA hB
+rtensor hB
+ax hB
+ax hA
+
+theorem ill_ex_02_tensor_one_left using ILLp : (A ⊗ 1) ⊸ A := by
+rlolli h
+ltensor at h as hA h1
+lone at h1
+ax hA
+
+theorem ill_ex_02_tensor_one_right using ILLp : A ⊸ (A ⊗ 1) := by
+rlolli h
+rtensor h
+ax h
+rone
+
+theorem ill_ex_03_with_comm using ILLp : (A & B) ⊸ (B & A) := by
+rlolli h
+rwith
+lwithr at h
+ax h
+lwithl at h
+ax h
+
+theorem ill_ex_04_with_top_left using ILLp : (A & top) ⊸ A := by
+rlolli h
+lwithl at h
+ax h
+
+theorem ill_ex_04_with_top_right using ILLp : A ⊸ (A & top) := by
+rlolli h
+rwith
+ax h
+rtop
+
+theorem ill_ex_05_plus_comm using ILLp : (A ⊕ B) ⊸ (B ⊕ A) := by
+rlolli h
+lplus at h as hA hB
+rplusr
+ax hA
+rplusl
+ax hB
+
+theorem ill_ex_06_plus_zero_left using ILLp : (A ⊕ 0) ⊸ A := by
+rlolli h
+lplus at h as hA h0
+ax hA
+lzero at h0
+
+theorem ill_ex_06_plus_zero_right using ILLp : A ⊸ (A ⊕ 0) := by
+rlolli h
+rplusl
+ax h
+
+theorem ill_ex_07_tensor_with_distrib using ILLp : (A ⊗ (B & C)) ⊸ ((A ⊗ B) & (A ⊗ C)) := by
+rlolli h
+ltensor at h as hA hBC
+rwith
+rtensor hA
+ax hA
+lwithl at hBC
+ax hBC
+rtensor hA
+ax hA
+lwithr at hBC
+ax hBC
+
+theorem ill_ex_08_tensor_plus_distrib using ILLp : (A ⊗ (B ⊕ C)) ⊸ ((A ⊗ B) ⊕ (A ⊗ C)) := by
+rlolli h
+ltensor at h as hA hBC
+lplus at hBC as hB hC
+rplusl
+rtensor hA
+ax hA
+ax hB
+rplusr
+rtensor hA
+ax hA
+ax hC
+
+theorem ill_ex_09_plus_tensor_factor using ILLp : ((A ⊗ B) ⊕ (A ⊗ C)) ⊸ (A ⊗ (B ⊕ C)) := by
+rlolli h
+lplus at h as hAB hAC
+ltensor at hAB as hA hB
+rtensor hA
+ax hA
+rplusl
+ax hB
+ltensor at hAC as hA hC
+rtensor hA
+ax hA
+rplusr
+ax hC
+
+theorem ill_ex_10_bang_tensor_promote using ILLp : (!A ⊗ !B) ⊸ !(A ⊗ B) := by
+rlolli h
+ltensor at h as hA hB
+rbang
+rtensor hA
+lbang at hA
+ax hA
+lbang at hB
+ax hB
+
+theorem ill_ex_10_one_bang_one using ILLp : 1 ⊸ !1 := by
+rlolli h
+lone at h
+rbang
+rone
+
+theorem ill_ex_11_bang_comonoid using ILLp : !A ⊸ ((1 & A) & (!A ⊗ !A)) := by
+rlolli h
+rwith
+rwith
+weakenbang at h
+rone
+lbang at h
+ax h
+contractbang at h as h1 h2
+rtensor h1
+ax h1
+ax h2
+
+theorem ill_ex_12_bang_tensor_to_bang_with using ILLp : (!A ⊗ !B) ⊸ !(A & B) := by
+rlolli h
+ltensor at h as hA hB
+rbang
+rwith
+weakenbang at hB
+lbang at hA
+ax hA
+weakenbang at hA
+lbang at hB
+ax hB
+
+theorem ill_ex_12_bang_with_to_tensor_bang using ILLp : !(A & B) ⊸ (!A ⊗ !B) := by
+rlolli h
+contractbang at h as h1 h2
+rtensor h1
+rbang
+lbang at h1
+lwithl at h1
+ax h1
+rbang
+lbang at h2
+lwithr at h2
+ax h2
+
+theorem ill_ex_13_one_bang_top using ILLp : 1 ⊸ !top := by
+rlolli h
+lone at h
+rbang
+rtop
+
+theorem ill_ex_13_bang_top_one using ILLp : !top ⊸ 1 := by
+rlolli h
+weakenbang at h
+rone

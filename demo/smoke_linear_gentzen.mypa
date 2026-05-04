@@ -1,5 +1,5 @@
-#help cllp_gentzen
+#help CLLp
 
-def smoke using LL in GENTZEN with LL : a ⊸ a := by
+theorem smoke using CLLp : a ⊸ a := by
 rlolli h
 ax h

@@ -1,0 +1,23 @@
+.mypa-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mypa-editor-host,
+.mypa-proof-host {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mypa-editor-host .monaco-scrollable-element > .scrollbar.vertical,
+.mypa-editor-host .monaco-editor .decorationsOverviewRuler {
+  background: #ffffff !important;
+}
+
+.mypa-editor-host .monaco-scrollable-element > .scrollbar.vertical {
+  box-shadow: -1px 0 0 #d0d7de;
+}

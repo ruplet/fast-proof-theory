@@ -17,6 +17,7 @@ import {
   isDomainInfo,
   operatorMatches,
   symbolCompletions,
+  tacticHoverMarkdown,
 } from "../../languageSupport/features";
 
 let goalsPanel: GoalsPanel | undefined;
@@ -472,8 +473,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!rule) return null;
       const md = new vscode.MarkdownString();
       md.isTrusted = false;
-      md.appendMarkdown(`**${rule.title}**\n\n`);
-      md.appendCodeblock(rule.display, "text");
+      md.appendMarkdown(tacticHoverMarkdown(rule));
       return new vscode.Hover(md, range);
     },
   });

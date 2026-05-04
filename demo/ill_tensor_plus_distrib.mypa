@@ -1,0 +1,12 @@
+theorem ill_tensor_plus_distrib using ILLp : (A ⊗ (B ⊕ C)) ⊸ ((A ⊗ B) ⊕ (A ⊗ C)) := by
+rlolli h
+ltensor at h as hA hBC
+lplus at hBC as hB hC
+rplusl
+rtensor hA
+ax hA
+ax hB
+rplusr
+rtensor hA
+ax hA
+ax hC

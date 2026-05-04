@@ -1,11 +1,11 @@
-def ll_tensor_intro using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
+theorem ll_tensor_intro using CLLp : a ⊸ b ⊸ (a ⊗ b) := by
 rlolli ha
 rlolli hb
 rtensor ha
 ax ha
 ax hb
 
-theorem njp_identity using NJp with IMP : a -> a := by
+theorem njp_identity using NJp : a -> a := by
 intro h
 assumption h
 

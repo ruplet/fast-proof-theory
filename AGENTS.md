@@ -1,5 +1,11 @@
 # Agent Instructions
 
+## No Legacy / No Backward Compatibility
+
+Do not preserve legacy behavior and do not implement backward-compatibility paths.
+
+When changing behavior, prefer a clean replacement over aliasing old names, compatibility shims, migration branches, or dual-mode support.
+
 Read only the source and docs needed for the task.
 
 Do not read generated or dependency artifacts unless the task is explicitly about build tooling or external dependencies.
@@ -42,6 +48,10 @@ For programmatic MyPA proof development and verification, use:
   - `lake env lean <output.lean>`
 
 Codex should treat `FastProofTheory/Proof/*` as the trusted kernel and `proofAssistant/*` as user-facing tooling.
+
+Do not add or restore root `test/` node:test suites. They are intentionally not maintained. Capture durable proof-assistant expectations in this file or in focused source comments instead.
+
+When changing proof-state display, preserve the distinction between linear implication (`⊸`) and ordinary propositional implication (`->`); linear goals should render lollipop, not the propositional arrow.
 
 ## UI Architecture Rules
 

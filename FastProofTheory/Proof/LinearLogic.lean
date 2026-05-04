@@ -25,16 +25,34 @@ scoped infixr:50 " ⊸ " => LinearFormula.lolli
 scoped notation "⊤ₗ" => LinearFormula.top
 scoped notation "⊥ₗ" => LinearFormula.bottom
 
-def neg (formula : LinearFormula) : LinearFormula :=
-  formula ⊸ ⊥ₗ
-
-scoped prefix:max "~" => neg
-
 end LinearFormula
+
+inductive IntuitionisticLinearFormula where
+  | atom : String → IntuitionisticLinearFormula
+  | tensor : IntuitionisticLinearFormula → IntuitionisticLinearFormula → IntuitionisticLinearFormula
+  | with : IntuitionisticLinearFormula → IntuitionisticLinearFormula → IntuitionisticLinearFormula
+  | plus : IntuitionisticLinearFormula → IntuitionisticLinearFormula → IntuitionisticLinearFormula
+  | lolli : IntuitionisticLinearFormula → IntuitionisticLinearFormula → IntuitionisticLinearFormula
+  | bang : IntuitionisticLinearFormula → IntuitionisticLinearFormula
+  | one : IntuitionisticLinearFormula
+  | zero : IntuitionisticLinearFormula
+  | top : IntuitionisticLinearFormula
+deriving Inhabited, Repr, DecidableEq
+
+namespace IntuitionisticLinearFormula
+
+scoped infixr:70 " ⊗ᵢ " => IntuitionisticLinearFormula.tensor
+scoped infixr:60 " &ᵢ " => IntuitionisticLinearFormula.with
+scoped infixr:55 " ⊕ᵢ " => IntuitionisticLinearFormula.plus
+scoped infixr:50 " ⊸ᵢ " => IntuitionisticLinearFormula.lolli
+scoped notation "⊤ᵢ" => IntuitionisticLinearFormula.top
+
+end IntuitionisticLinearFormula
 
 open LinearFormula
 
 abbrev LinearContext := List LinearFormula
+abbrev IntuitionisticLinearContext := List IntuitionisticLinearFormula
 
 private def allBang : LinearContext → Prop
   | [] => True
@@ -46,115 +64,227 @@ private def allWhyNot : LinearContext → Prop
   | .whyNot _ :: rest => allWhyNot rest
   | _ => False
 
-inductive LinearLogic : LinearContext → LinearContext → Prop where
+private def allBangIntuitionistic : IntuitionisticLinearContext → Prop
+  | [] => True
+  | .bang _ :: rest => allBangIntuitionistic rest
+  | _ => False
+
+inductive CLL : LinearContext → LinearContext → Prop where
   | assumption {formula} :
-      LinearLogic [formula] [formula]
+      CLL [formula] [formula]
 
   | exchangeLeft {leftContext rightContext succedent firstFormula secondFormula} :
-      LinearLogic (leftContext ++ firstFormula :: secondFormula :: rightContext) succedent →
-      LinearLogic (leftContext ++ secondFormula :: firstFormula :: rightContext) succedent
+      CLL (leftContext ++ firstFormula :: secondFormula :: rightContext) succedent →
+      CLL (leftContext ++ secondFormula :: firstFormula :: rightContext) succedent
 
   | exchangeRight {antecedent leftContext rightContext firstFormula secondFormula} :
-      LinearLogic antecedent (leftContext ++ firstFormula :: secondFormula :: rightContext) →
-      LinearLogic antecedent (leftContext ++ secondFormula :: firstFormula :: rightContext)
+      CLL antecedent (leftContext ++ firstFormula :: secondFormula :: rightContext) →
+      CLL antecedent (leftContext ++ secondFormula :: firstFormula :: rightContext)
 
   | cut {leftAntecedent leftSuccedent rightAntecedent rightSuccedent cutFormula} :
-      LinearLogic leftAntecedent (cutFormula :: leftSuccedent) →
-      LinearLogic (cutFormula :: rightAntecedent) rightSuccedent →
-      LinearLogic (leftAntecedent ++ rightAntecedent) (leftSuccedent ++ rightSuccedent)
-
-  | withLeftLeft {antecedent succedent leftFormula rightFormula} :
-      LinearLogic (leftFormula :: antecedent) succedent →
-      LinearLogic ((leftFormula & rightFormula) :: antecedent) succedent
-
-  | withLeftRight {antecedent succedent leftFormula rightFormula} :
-      LinearLogic (rightFormula :: antecedent) succedent →
-      LinearLogic ((leftFormula & rightFormula) :: antecedent) succedent
-
-  | withRight {antecedent succedent leftFormula rightFormula} :
-      LinearLogic antecedent (leftFormula :: succedent) →
-      LinearLogic antecedent (rightFormula :: succedent) →
-      LinearLogic antecedent ((leftFormula & rightFormula) :: succedent)
+      CLL leftAntecedent (cutFormula :: leftSuccedent) →
+      CLL (cutFormula :: rightAntecedent) rightSuccedent →
+      CLL (leftAntecedent ++ rightAntecedent) (leftSuccedent ++ rightSuccedent)
 
   | tensorLeft {antecedent succedent leftFormula rightFormula} :
-      LinearLogic (leftFormula :: rightFormula :: antecedent) succedent →
-      LinearLogic ((leftFormula ⊗ rightFormula) :: antecedent) succedent
+      CLL (leftFormula :: rightFormula :: antecedent) succedent →
+      CLL ((leftFormula ⊗ rightFormula) :: antecedent) succedent
 
   | tensorRight {leftAntecedent leftSuccedent rightAntecedent rightSuccedent leftFormula rightFormula} :
-      LinearLogic leftAntecedent (leftFormula :: leftSuccedent) →
-      LinearLogic rightAntecedent (rightFormula :: rightSuccedent) →
-      LinearLogic (leftAntecedent ++ rightAntecedent) ((leftFormula ⊗ rightFormula) :: (leftSuccedent ++ rightSuccedent))
+      CLL leftAntecedent (leftFormula :: leftSuccedent) →
+      CLL rightAntecedent (rightFormula :: rightSuccedent) →
+      CLL (leftAntecedent ++ rightAntecedent) ((leftFormula ⊗ rightFormula) :: (leftSuccedent ++ rightSuccedent))
 
-  | plusLeft {antecedent succedent leftFormula rightFormula} :
-      LinearLogic (leftFormula :: antecedent) succedent →
-      LinearLogic (rightFormula :: antecedent) succedent →
-      LinearLogic ((leftFormula ⊕ rightFormula) :: antecedent) succedent
+  | oneLeft {antecedent succedent} :
+      CLL antecedent succedent →
+      CLL (.one :: antecedent) succedent
 
-  | plusRightLeft {antecedent succedent leftFormula rightFormula} :
-      LinearLogic antecedent (leftFormula :: succedent) →
-      LinearLogic antecedent ((leftFormula ⊕ rightFormula) :: succedent)
-
-  | plusRightRight {antecedent succedent leftFormula rightFormula} :
-      LinearLogic antecedent (rightFormula :: succedent) →
-      LinearLogic antecedent ((leftFormula ⊕ rightFormula) :: succedent)
+  | oneRight :
+      CLL [] [.one]
 
   | parLeft {leftAntecedent leftSuccedent rightAntecedent rightSuccedent leftFormula rightFormula} :
-      LinearLogic leftAntecedent (leftFormula :: leftSuccedent) →
-      LinearLogic (rightFormula :: rightAntecedent) rightSuccedent →
-      LinearLogic ((leftFormula ⅋ rightFormula) :: (leftAntecedent ++ rightAntecedent)) (leftSuccedent ++ rightSuccedent)
+      CLL (leftFormula :: leftAntecedent) leftSuccedent →
+      CLL (rightFormula :: rightAntecedent) rightSuccedent →
+      CLL ((leftFormula ⅋ rightFormula) :: (leftAntecedent ++ rightAntecedent)) (leftSuccedent ++ rightSuccedent)
 
   | parRight {antecedent succedent leftFormula rightFormula} :
-      LinearLogic antecedent (leftFormula :: rightFormula :: succedent) →
-      LinearLogic antecedent ((leftFormula ⅋ rightFormula) :: succedent)
+      CLL antecedent (leftFormula :: rightFormula :: succedent) →
+      CLL antecedent ((leftFormula ⅋ rightFormula) :: succedent)
+
+  | bottomLeft :
+      CLL [.bottom] []
+
+  | bottomRight {antecedent succedent} :
+      CLL antecedent succedent →
+      CLL antecedent (.bottom :: succedent)
 
   | lolliLeft {leftAntecedent leftSuccedent rightAntecedent rightSuccedent antecedentFormula consequentFormula} :
-      LinearLogic leftAntecedent (antecedentFormula :: leftSuccedent) →
-      LinearLogic (consequentFormula :: rightAntecedent) rightSuccedent →
-      LinearLogic ((antecedentFormula ⊸ consequentFormula) :: (leftAntecedent ++ rightAntecedent))
+      CLL leftAntecedent (antecedentFormula :: leftSuccedent) →
+      CLL (consequentFormula :: rightAntecedent) rightSuccedent →
+      CLL ((antecedentFormula ⊸ consequentFormula) :: (leftAntecedent ++ rightAntecedent))
         (leftSuccedent ++ rightSuccedent)
 
   | lolliRight {antecedent succedent antecedentFormula consequentFormula} :
-      LinearLogic (antecedentFormula :: antecedent) (consequentFormula :: succedent) →
-      LinearLogic antecedent ((antecedentFormula ⊸ consequentFormula) :: succedent)
+      CLL (antecedentFormula :: antecedent) (consequentFormula :: succedent) →
+      CLL antecedent ((antecedentFormula ⊸ consequentFormula) :: succedent)
 
-  | oneLeft {antecedent succedent} :
-      LinearLogic antecedent succedent →
-      LinearLogic (.one :: antecedent) succedent
+  | withLeftLeft {antecedent succedent leftFormula rightFormula} :
+      CLL (leftFormula :: antecedent) succedent →
+      CLL ((leftFormula & rightFormula) :: antecedent) succedent
 
-  | oneRight :
-      LinearLogic [] [.one]
+  | withLeftRight {antecedent succedent leftFormula rightFormula} :
+      CLL (rightFormula :: antecedent) succedent →
+      CLL ((leftFormula & rightFormula) :: antecedent) succedent
 
-  | zeroLeft {antecedent succedent} :
-      LinearLogic (.zero :: antecedent) succedent
+  | withRight {antecedent succedent leftFormula rightFormula} :
+      CLL antecedent (leftFormula :: succedent) →
+      CLL antecedent (rightFormula :: succedent) →
+      CLL antecedent ((leftFormula & rightFormula) :: succedent)
 
   | topRight {antecedent succedent} :
-      LinearLogic antecedent (⊤ₗ :: succedent)
+      CLL antecedent (.top :: succedent)
 
-  | bottomLeft {antecedent succedent} :
-      LinearLogic (⊥ₗ :: antecedent) succedent
+  | plusLeft {antecedent succedent leftFormula rightFormula} :
+      CLL (leftFormula :: antecedent) succedent →
+      CLL (rightFormula :: antecedent) succedent →
+      CLL ((leftFormula ⊕ rightFormula) :: antecedent) succedent
 
-  | bottomRight {antecedent succedent} :
-      LinearLogic antecedent succedent →
-      LinearLogic antecedent (⊥ₗ :: succedent)
+  | plusRightLeft {antecedent succedent leftFormula rightFormula} :
+      CLL antecedent (leftFormula :: succedent) →
+      CLL antecedent ((leftFormula ⊕ rightFormula) :: succedent)
+
+  | plusRightRight {antecedent succedent leftFormula rightFormula} :
+      CLL antecedent (rightFormula :: succedent) →
+      CLL antecedent ((leftFormula ⊕ rightFormula) :: succedent)
+
+  | zeroLeft {antecedent succedent} :
+      CLL (.zero :: antecedent) succedent
+
+  | bangWeakeningLeft {antecedent succedent formula} :
+      CLL antecedent succedent →
+      CLL ((.bang formula) :: antecedent) succedent
+
+  | bangContractionLeft {antecedent succedent formula} :
+      CLL ((.bang formula) :: (.bang formula) :: antecedent) succedent →
+      CLL ((.bang formula) :: antecedent) succedent
 
   | bangLeft {antecedent succedent formula} :
-      LinearLogic (formula :: antecedent) succedent →
-      LinearLogic ((.bang formula) :: antecedent) succedent
+      CLL (formula :: antecedent) succedent →
+      CLL ((.bang formula) :: antecedent) succedent
 
   | bangRight {antecedent succedent formula} :
       allBang antecedent →
       allWhyNot succedent →
-      LinearLogic antecedent (formula :: succedent) →
-      LinearLogic antecedent ((.bang formula) :: succedent)
+      CLL antecedent (formula :: succedent) →
+      CLL antecedent ((.bang formula) :: succedent)
+
+  | whyNotWeakeningRight {antecedent succedent formula} :
+      CLL antecedent succedent →
+      CLL antecedent ((.whyNot formula) :: succedent)
+
+  | whyNotContractionRight {antecedent succedent formula} :
+      CLL antecedent ((.whyNot formula) :: (.whyNot formula) :: succedent) →
+      CLL antecedent ((.whyNot formula) :: succedent)
+
+  | whyNotRight {antecedent succedent formula} :
+      CLL antecedent (formula :: succedent) →
+      CLL antecedent ((.whyNot formula) :: succedent)
 
   | whyNotLeft {antecedent succedent formula} :
       allBang antecedent →
       allWhyNot succedent →
-      LinearLogic (formula :: antecedent) succedent →
-      LinearLogic ((.whyNot formula) :: antecedent) succedent
+      CLL (formula :: antecedent) succedent →
+      CLL ((.whyNot formula) :: antecedent) succedent
 
-  | whyNotRight {antecedent succedent formula} :
-      LinearLogic antecedent (formula :: succedent) →
-      LinearLogic antecedent ((.whyNot formula) :: succedent)
+open IntuitionisticLinearFormula
+
+inductive ILL : IntuitionisticLinearContext → IntuitionisticLinearFormula → Prop where
+  | assumption {formula} :
+      ILL [formula] formula
+
+  | exchangeLeft {leftContext rightContext firstFormula secondFormula conclusion} :
+      ILL (leftContext ++ firstFormula :: secondFormula :: rightContext) conclusion →
+      ILL (leftContext ++ secondFormula :: firstFormula :: rightContext) conclusion
+
+  | cut {leftAntecedent rightAntecedent cutFormula conclusion} :
+      ILL leftAntecedent cutFormula →
+      ILL (cutFormula :: rightAntecedent) conclusion →
+      ILL (leftAntecedent ++ rightAntecedent) conclusion
+
+  | oneRight :
+      ILL [] .one
+
+  | oneLeft {antecedent conclusion} :
+      ILL antecedent conclusion →
+      ILL (.one :: antecedent) conclusion
+
+  | tensorRight {leftAntecedent rightAntecedent leftFormula rightFormula} :
+      ILL leftAntecedent leftFormula →
+      ILL rightAntecedent rightFormula →
+      ILL (leftAntecedent ++ rightAntecedent) (.tensor leftFormula rightFormula)
+
+  | tensorLeft {antecedent conclusion leftFormula rightFormula} :
+      ILL (leftFormula :: rightFormula :: antecedent) conclusion →
+      ILL ((.tensor leftFormula rightFormula) :: antecedent) conclusion
+
+  | lolliRight {antecedent antecedentFormula consequentFormula} :
+      ILL (antecedentFormula :: antecedent) consequentFormula →
+      ILL antecedent (.lolli antecedentFormula consequentFormula)
+
+  | lolliLeft {leftAntecedent rightAntecedent antecedentFormula consequentFormula conclusion} :
+      ILL leftAntecedent antecedentFormula →
+      ILL (consequentFormula :: rightAntecedent) conclusion →
+      ILL ((.lolli antecedentFormula consequentFormula) :: (leftAntecedent ++ rightAntecedent)) conclusion
+
+  | topRight {antecedent} :
+      ILL antecedent .top
+
+  | zeroLeft {antecedent conclusion} :
+      ILL (.zero :: antecedent) conclusion
+
+  | withLeftLeft {antecedent conclusion leftFormula rightFormula} :
+      ILL (leftFormula :: antecedent) conclusion →
+      ILL ((.with leftFormula rightFormula) :: antecedent) conclusion
+
+  | withLeftRight {antecedent conclusion leftFormula rightFormula} :
+      ILL (rightFormula :: antecedent) conclusion →
+      ILL ((.with leftFormula rightFormula) :: antecedent) conclusion
+
+  | withRight {antecedent leftFormula rightFormula} :
+      ILL antecedent leftFormula →
+      ILL antecedent rightFormula →
+      ILL antecedent (.with leftFormula rightFormula)
+
+  | plusLeft {antecedent conclusion leftFormula rightFormula} :
+      ILL (leftFormula :: antecedent) conclusion →
+      ILL (rightFormula :: antecedent) conclusion →
+      ILL ((.plus leftFormula rightFormula) :: antecedent) conclusion
+
+  | plusRightLeft {antecedent leftFormula rightFormula} :
+      ILL antecedent leftFormula →
+      ILL antecedent (.plus leftFormula rightFormula)
+
+  | plusRightRight {antecedent leftFormula rightFormula} :
+      ILL antecedent rightFormula →
+      ILL antecedent (.plus leftFormula rightFormula)
+
+  | bangWeakening {antecedent formula conclusion} :
+      ILL antecedent conclusion →
+      ILL ((.bang formula) :: antecedent) conclusion
+
+  | bangContraction {antecedent formula conclusion} :
+      ILL ((.bang formula) :: (.bang formula) :: antecedent) conclusion →
+      ILL ((.bang formula) :: antecedent) conclusion
+
+  | bangLeft {antecedent formula conclusion} :
+      ILL (formula :: antecedent) conclusion →
+      ILL ((.bang formula) :: antecedent) conclusion
+
+  | bangRight {antecedent formula} :
+      allBangIntuitionistic antecedent →
+      ILL antecedent formula →
+      ILL antecedent (.bang formula)
+
+abbrev LinearLogic := CLL
 
 end FastProofTheory.Proof

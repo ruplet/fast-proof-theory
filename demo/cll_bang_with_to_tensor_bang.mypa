@@ -1,0 +1,14 @@
+-- `contractbang` applies S! to a !-formula.
+
+theorem cll_bang_with_to_tensor_bang using CLLp : !(A & B) ⊸ (!A ⊗ !B) := by
+rlolli h
+contractbang at h as hA hB
+rtensor hA
+rbang
+lbang at hA
+lwithl at hA
+ax hA
+rbang
+lbang at hB
+lwithr at hB
+ax hB

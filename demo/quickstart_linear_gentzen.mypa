@@ -1,24 +1,24 @@
 -- Urzyczyn-style classical linear sequent calculus surface, using Paoli-style rule names.
--- The currently checked subset in the engine covers `ax`, `rlolli`, `rtensor`, and `rwith`.
+-- The currently checked subset in the engine covers the tactics used below.
 
-def axiom_id using LL in GENTZEN with LL : a ⊸ a := by
+theorem axiom_id using CLLp : a ⊸ a := by
 rlolli h
 ax h
 
-def tensor_right using LL in GENTZEN with LL : a ⊸ b ⊸ (a ⊗ b) := by
+theorem tensor_right using CLLp : a ⊸ b ⊸ (a ⊗ b) := by
 rlolli ha
 rlolli hb
 rtensor ha
 ax ha
 ax hb
 
-def with_right using LL in GENTZEN with LL : a ⊸ (a & a) := by
+theorem with_right using CLLp : a ⊸ (a & a) := by
 rlolli h
 rwith
 ax h
 ax h
 
-def tensor_nested using LL in GENTZEN with LL : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
+theorem tensor_nested using CLLp : a ⊸ b ⊸ c ⊸ (a ⊗ (b ⊗ c)) := by
 rlolli ha
 rlolli hb
 rlolli hc
@@ -27,3 +27,39 @@ ax ha
 rtensor hb
 ax hb
 ax hc
+
+-- Classical propositional linear logic with exponentials.
+-- Urzyczyn one-sided target equivalent:
+--   ⊢ ?(A^bot ⊕ B^bot), !A ⊗ !B
+-- MyPA currently checks the same theorem through the two-sided surface:
+--   !(A & B) ⊢ !A ⊗ !B
+-- The proof uses only exponential-safe duplication: `contractbang` applies S! to a !-formula.
+
+theorem cll_bang_with_to_tensor_bang using CLLp : !(A & B) ⊸ (!A ⊗ !B) := by
+rlolli h
+contractbang at h as hA hB
+rtensor hA
+rbang
+lbang at hA
+lwithl at hA
+ax hA
+rbang
+lbang at hB
+lwithr at hB
+ax hB
+
+-- Intuitionistic propositional linear logic fragment.
+-- Demonstrates additive branching without duplicating linear resources.
+
+theorem ill_tensor_plus_distrib using ILLp : (A ⊗ (B ⊕ C)) ⊸ ((A ⊗ B) ⊕ (A ⊗ C)) := by
+rlolli h
+ltensor at h as hA hBC
+lplus at hBC as hB hC
+rplusl
+rtensor hA
+ax hA
+ax hB
+rplusr
+rtensor hA
+ax hA
+ax hC

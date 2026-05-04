@@ -5,9 +5,11 @@ import {
   emptyDomainInfo,
   findTacticDoc,
   symbolCompletions,
+  tacticHoverMarkdown,
 } from "../../languageSupport/features";
 
 let registered = false;
+let currentDomainInfo: () => DomainInfo = emptyDomainInfo;
 
 function completionKind(kind: "directive" | "system" | "symbol"): monaco.languages.CompletionItemKind {
   if (kind === "system") return monaco.languages.CompletionItemKind.Reference;
@@ -16,8 +18,8 @@ function completionKind(kind: "directive" | "system" | "symbol"): monaco.languag
 }
 
 export function configureMyPaTokens(info: DomainInfo = emptyDomainInfo()) {
-  const keywords = info.keywords.length ? info.keywords : ["def", "theorem", "using", "in", "with", "by"];
-  const operators = info.operators.length ? info.operators : ["⊸", "⊗", "⊕", "&", "!", "->"];
+  const keywords = info.keywords.length ? info.keywords : ["theorem", "using", "by"];
+  const operators = info.operators.length ? info.operators : ["⊸", "⊗", "⅋", "⊕", "&", "!", "^", "->"];
   const keywordPattern = new RegExp(`\\b(${keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`);
   const operatorPattern = new RegExp(operators.map((op) => op.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"));
 
@@ -34,8 +36,9 @@ export function configureMyPaTokens(info: DomainInfo = emptyDomainInfo()) {
 }
 
 export function registerMyPaLanguage(getDomainInfo: () => DomainInfo) {
+  currentDomainInfo = getDomainInfo;
   if (registered) {
-    configureMyPaTokens(getDomainInfo());
+    configureMyPaTokens(currentDomainInfo());
     return;
   }
   registered = true;
@@ -55,13 +58,13 @@ export function registerMyPaLanguage(getDomainInfo: () => DomainInfo) {
     ],
   });
 
-  configureMyPaTokens(getDomainInfo());
+  configureMyPaTokens(currentDomainInfo());
 
   monaco.languages.registerCompletionItemProvider("mypa", {
-    triggerCharacters: ["\\", "#", " "],
+    triggerCharacters: ["\\", "^", "#", " ", ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"],
     provideCompletionItems(model, position) {
       const linePrefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
-      const lineItems = completionsForLine(getDomainInfo(), linePrefix).map((c) => ({
+      const lineItems = completionsForLine(currentDomainInfo(), linePrefix).map((c) => ({
         label: c.label,
         insertText: c.insertText,
         kind: completionKind(c.kind),
@@ -78,11 +81,14 @@ export function registerMyPaLanguage(getDomainInfo: () => DomainInfo) {
         return { suggestions: lineItems };
       }
 
-      const symbolMatch = linePrefix.match(/\\[\w]*$/);
-      const prefix = symbolMatch ? symbolMatch[0] : "";
-      const symbolStartColumn = symbolMatch ? position.column - prefix.length : position.column;
+      const symbolMatch = linePrefix.match(/\\(?:\^?[\w]*)$/);
+      if (!symbolMatch) {
+        return { suggestions: [] };
+      }
+      const prefix = symbolMatch[0];
+      const symbolStartColumn = position.column - prefix.length;
       return {
-        suggestions: symbolCompletions(getDomainInfo(), prefix).map((c) => ({
+        suggestions: symbolCompletions(currentDomainInfo(), prefix).map((c) => ({
           label: c.label,
           insertText: c.insertText,
           kind: completionKind(c.kind),
@@ -103,14 +109,11 @@ export function registerMyPaLanguage(getDomainInfo: () => DomainInfo) {
     provideHover(model, position) {
       const word = model.getWordAtPosition(position);
       if (!word) return null;
-      const rule = findTacticDoc(getDomainInfo(), word.word);
+      const rule = findTacticDoc(currentDomainInfo(), word.word);
       if (!rule) return null;
       return {
         range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-        contents: [
-          { value: `**${rule.title}**` },
-          { value: `\`\`\`text\n${rule.display}\n\`\`\`` },
-        ],
+        contents: [{ value: tacticHoverMarkdown(rule) }],
       };
     },
   });

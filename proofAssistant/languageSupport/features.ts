@@ -87,6 +87,38 @@ export function findTacticDoc(info: DomainInfo, word: string): TacticDoc | undef
   return tacticDocsByName(info).get(word.toLowerCase());
 }
 
+const TACTIC_GENTZEN_LINES: Record<string, string[]> = {
+  ax: ["Γ, φ ⊢ φ, Δ", "──────────── (AX)"],
+  rlolli: ["Γ, φ ⊢ ψ, Δ", "────────────── (R⊸)", "Γ ⊢ φ ⊸ ψ, Δ"],
+  rwith: ["Γ ⊢ φ, Δ", "Γ ⊢ ψ, Δ", "────────── (R&)", "Γ ⊢ φ & ψ, Δ"],
+  rplusl: ["Γ ⊢ φ, Δ", "────────── (R⊕L)", "Γ ⊢ φ ⊕ ψ, Δ"],
+  rplusr: ["Γ ⊢ ψ, Δ", "────────── (R⊕R)", "Γ ⊢ φ ⊕ ψ, Δ"],
+  rtensor: ["Γ ⊢ φ, Δ    Σ ⊢ ψ, Π", "────────────────────── (R⊗)", "Γ, Σ ⊢ φ ⊗ ψ, Δ, Π"],
+  rpar: ["Γ ⊢ φ, ψ, Δ", "──────────── (R⅋)", "Γ ⊢ φ ⅋ ψ, Δ"],
+  rbot: ["Γ ⊢ Δ", "──────── (Rbot)", "Γ ⊢ bot, Δ"],
+  lwithl: ["Γ, φ, Δ ⊢ Σ", "──────────── (L&L)", "Γ, φ & ψ, Δ ⊢ Σ"],
+  lwithr: ["Γ, ψ, Δ ⊢ Σ", "──────────── (L&R)", "Γ, φ & ψ, Δ ⊢ Σ"],
+  ltensor: ["Γ, φ, ψ, Δ ⊢ Σ", "────────────── (L⊗)", "Γ, φ ⊗ ψ, Δ ⊢ Σ"],
+  lplus: ["Γ, φ, Δ ⊢ Σ    Γ, ψ, Δ ⊢ Σ", "──────────────────────── (L⊕)", "Γ, φ ⊕ ψ, Δ ⊢ Σ"],
+  rone: ["", "─── (R1)", "⊢ 1"],
+  lone: ["Γ ⊢ Δ", "────── (L1)", "Γ, 1 ⊢ Δ"],
+  rtop: ["", "──────── (Rtop)", "Γ ⊢ top, Δ"],
+  lzero: ["", "────── (L0)", "Γ, 0 ⊢ Δ"],
+  lbang: ["Γ, φ, Δ ⊢ Σ", "────────── (L!)", "Γ, !φ, Δ ⊢ Σ"],
+  weakenbang: ["Γ ⊢ Σ", "────────── (W!)", "Γ, !φ ⊢ Σ"],
+  rbang: ["!Γ ⊢ φ, Δ", "────────── (R!)", "!Γ ⊢ !φ, Δ"],
+  contractbang: ["Γ, !φ, !φ, Δ ⊢ Σ", "─────────────── (LC!)", "Γ, !φ, Δ ⊢ Σ"],
+};
+
+export function tacticHoverMarkdown(rule: TacticDoc): string {
+  const gentzen = TACTIC_GENTZEN_LINES[rule.name.toLowerCase()];
+  const parts = [`**${rule.title}**`, "", rule.summary, "", `Usage: \`${rule.display}\``];
+  if (gentzen && gentzen.length) {
+    parts.push("", "```text", ...gentzen, "```");
+  }
+  return parts.join("\n");
+}
+
 export function completionsForLine(info: DomainInfo, linePrefix: string): CompletionCandidate[] {
   if (linePrefix.startsWith("#help ")) {
     const systemPrefix = linePrefix.slice("#help ".length).trimLeft();

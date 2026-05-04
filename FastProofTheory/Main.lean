@@ -36,8 +36,8 @@ private def usage : String := String.intercalate "\n" [
 
 private def proofInfo : Json :=
   Json.mkObj [
-    ("systems", Json.arr (#[ "FastProofTheory.Proof.NJp", "FastProofTheory.Proof.NKp", "FastProofTheory.Proof.LJp", "FastProofTheory.Proof.LKp", "FastProofTheory.Proof.NJ", "FastProofTheory.Proof.NK", "FastProofTheory.Proof.LJ", "FastProofTheory.Proof.LK", "FastProofTheory.Proof.LinearLogic" ].map Json.str)),
-    ("syntax", Json.str "NJp/NKp/LJp/LKp are propositional fragments; NJ/NK/LJ/LK extend them with first-order quantifier rules; LinearLogic uses FastProofTheory.Proof.LinearFormula.")
+    ("systems", Json.arr (#[ "FastProofTheory.Proof.NJp", "FastProofTheory.Proof.NKp", "FastProofTheory.Proof.LJp", "FastProofTheory.Proof.LKp", "FastProofTheory.Proof.NJ", "FastProofTheory.Proof.NK", "FastProofTheory.Proof.LJ", "FastProofTheory.Proof.LK", "FastProofTheory.Proof.CLL", "FastProofTheory.Proof.ILL" ].map Json.str)),
+    ("syntax", Json.str "NJp/NKp/LJp/LKp are propositional fragments; NJ/NK/LJ/LK extend them with first-order quantifier rules; CLL uses FastProofTheory.Proof.LinearFormula and ILL uses FastProofTheory.Proof.IntuitionisticLinearFormula.")
   ]
 
 private def emitFailure (id : Json) (code : Int) (message : String) : IO Unit := do

@@ -1,0 +1,13 @@
+-- Intuitionistic propositional linear logic fragment.
+-- Same currently supported tactic subset as CLLp in the MyPA checker.
+
+theorem illp_axiom_id using ILLp : a ⊸ a := by
+rlolli h
+ax h
+
+theorem illp_tensor_right using ILLp : a ⊸ b ⊸ (a ⊗ b) := by
+rlolli ha
+rlolli hb
+rtensor ha
+ax ha
+ax hb
